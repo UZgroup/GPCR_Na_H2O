@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Tue Oct 29 12:19:43 2019
+
+@author: neilthomson
+"""
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+##THIS SCRIPT IS DESIGNED TO OPTIMISE THE INFO TRANSFER
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+import seaborn as sns
+import numpy as np
+from scipy.optimize import curve_fit
+from scipy.signal import argrelextrema
+from queue import PriorityQueue 
+import glob
+import itertools
+import matplotlib.pyplot as plt
+
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+'FUNCTIONS'
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+##setting the bin number for the angular distribution historgram resolution
+binnumber=90
+
+#selecting a specific residue to analyse
+resindex=2
+
+"smoothing the kde data so that the extrema can be found without any of the small noise appearing as extrema"
+def smooth(x,window_len=15,window='hanning'):
+    if x.ndim != 1:
+        raise ValueError
+    if x.size < window_len:
+        raise ValueError
+    if window_len<3:
+        return x
+    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+        raise ValueError
+    s=np.r_[x[window_len-1:0:-1],x,x[-2:-window_len-1:-1]]
+    if window == 'flat': #moving average
+        w=np.ones(window_len,'d')
+    else:
+        w=eval('np.'+window+'(window_len)')
+    y=np.convolve(w/w.sum(),s,mode='valid')
+    return y
+
+'FINDING THE NEAREST NEIGHBOUR FUNCTION'
+def find_nearest(array, value):
+    array = np.asarray(array)
+    idx = (np.abs(array - value)).argmin()
+    return array[idx]
+
+'GAUSSIAN FUNCTIONS'
+def gauss(x, x0, sigma, a):
+    """ Gaussian function: """
+    return a*np.exp(-(x-x0)**2/(2*sigma**2))
+def bimodal(x,mu1,sigma1,A1,mu2,sigma2,A2):
+    """ Two gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)
+def trimodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3):
+    """ Three gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)
+def quadmodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4):
+    """ Four gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)+gauss(x,mu4,sigma4,A4)
+def quinmodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4,mu5,sigma5,A5):
+    """ Five gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)+gauss(x,mu4,sigma4,A4)+gauss(x,mu5,sigma5,A5)
+   
+'CHECK IF VALUE IS BETWEEN X AND Y'
+def check(value,x,y):
+    if x <= value <= y:
+        return 1
+    else:
+        return 0
+
+'PRINT K CLOSEST VALUES TO SPECIFIED VALUE'
+def printKclosest(arr,n,x,k): 
+    a=[]
+  
+    # Make a max heap of difference with  
+    # first k elements.  
+    pq = PriorityQueue() 
+    for i in range(k): 
+        pq.put((-abs(arr[i]-x),i)) 
+  
+    # Now process remaining elements 
+    for i in range(k,n): 
+        diff = abs(arr[i]-x) 
+        p,pi = pq.get() 
+        curr = -p 
+  
+        # If difference with current  
+        # element is more than root,  
+        # then put it back.  
+        if diff>curr: 
+            pq.put((-curr,pi)) 
+            continue
+        else: 
+  
+            # Else remove root and insert 
+            pq.put((-diff,i)) 
+              
+    # Print contents of heap. 
+    while(not pq.empty()): 
+        p,q = pq.get() 
+        a.append(str("{} ".format(arr[q])))
+    
+    return a
+
+'IMPORTING XVG FILES WITH TWO COLUMNS'
+def xgv_to_list(file_name):
+    x, y = [], []
+    with open(file_name) as f:
+        next(f)
+        for line in f:
+            cols = line.split()
+            if len(cols) == 2:
+                x.append(float(cols[0]))
+                y.append(float(cols[1]))
+        return x, y
+
+'CORRECTING FOR THE PERIODICITY OF ANGLES'
+def periodic_correction(angle1):
+
+    ##generating a histogram of the chi angles
+    heights=np.histogram(angle1, bins=90, density=True)
+#    plt.figure()
+#    plt.plot(heights[1][0:-1],heights[0])
+#    plt.title('pre_correction')
+    ##if the first bar height is greater than the minimum cut off
+    ##then find the smallest bar and shift everything before that bar by 360
+#    if heights[0][0] != min(heights[0]):   
+    if heights[0][0] > max(heights[0])*0.0005:   
+
+        ##set the periodic boundary to the first minimum in the distribution
+        ##find the minimum angle by multiplying thre minimum bin number by the size of the bins
+        ##define the new periodic boundary for the shifted values
+        j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))
+#        j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))-180
+        ##remove the -180 for the waters since they by default range from 0 to 360
+
+#        print(j)
+        for k in range(len(angle1)):
+            ##if the angle is before the periodic boundary, shift by 360
+            if angle1[k] <= j:
+                angle1[k]+=360
+                
+#    plt.figure()
+#    plt.hist(angle1,bins=90)
+    
+    return angle1
+
+def periodic_correction_h2o(angle1):
+
+    ##angle positions
+    dipole_angle = [i for i in angle1 if i != 10000.0]
+    indices = [i for i, x in enumerate(angle1) if x != 10000.0]
+
+    ##generating a histogram of the chi angles
+    heights=np.histogram(dipole_angle, bins=90, density=True)
+
+    ##if the first bar height is greater than the minimum cut off
+    ##then find the smallest bar and shift everything before that bar by 360
+    if heights[0][0] > max(heights[0])*0.0005:   
+
+        ##set the periodic boundary to the first minimum in the distribution
+        ##find the minimum angle by multiplying thre minimum bin number by the size of the bins
+        ##define the new periodic boundary for the shifted values
+        j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))
+        for k in range(len(dipole_angle)):
+            ##if the angle is before the periodic boundary, shift by 360
+            if dipole_angle[k] <= j:
+                dipole_angle[k]+=360
+    
+    for i in range(len(indices)):
+        angle1[indices[i]] = dipole_angle[i]
+
+    return angle1
+
+
+'OBTAINING THE CONSTITUENT GAUSSIANS TO FIT A DISTRIBUTION WITH'
+def get_gaussian_fit(distribution):
+    
+    ##making histogram of distribution
+    histo=np.histogram(distribution, bins=binnumber, density=True)
+    ##smoothing the distribution
+    distributionx=smooth(histo[1][0:-1])
+    distributionyold=smooth(histo[0]-min(histo[0]))
+#    plt.figure()
+#    plt.plot(histo[1][0:-1],histo[0])
+#    plt.title('post_correction')
+    distributiony=distributionyold
+        
+    ##getting an array of all the maxima indices
+    maxima = [distributiony[item] for item in argrelextrema(distributiony, np.greater)][0]
+
+    ##the maxima may be local to a gaussian but not global
+    ##this grabs only the maxima that correspond to a density greater than the cutoff
+    #cutoff= 1/2000th of the global maximum 
+    corrected_extrema=[item for item in maxima if item > max(distributiony)*0.0005]
+#    print(corrected_extrema)
+    ##finding the guess parameters for the plots
+    ##empty lists for the guess params to be added to
+    mean_pop=[]
+    sigma_pop=[]
+    
+    'number of closest neighbours'
+    ##setting for the sigma finding function
+    noc=6
+    
+    ##for all the extrema, find the 'noc' closest x coordinates that lie on the distribution
+    ##closest to a value of half of the maximum
+    ##this is to find the edges of the gaussians for calculating sigma
+    sig_vals=[]
+    for extrema in corrected_extrema:
+        ##finding the 6 y values closest to the half max value of each extrema
+        closest=printKclosest(distributiony, len(distributiony), extrema/2.0, noc)
+        ##finding the x coordinate corresponding to these values
+        xlist=[np.where(distributiony==float(closesty))[0][0] for closesty in closest]
+        xsig=find_nearest(distributionx[xlist],distributionx[np.where(distributiony==extrema)[0][0]])
+        ##obtaining the width of the distribution
+        sig=np.absolute(xsig-distributionx[np.where(distributiony==extrema)[0][0]])
+#        print(xlist,xsig,sig)
+        sig_vals.append(sig)
+        
+    ##the mean x of the gaussian is the value of x at the peak of y
+    mean_vals=[distributionx[np.where(distributiony==extrema)[0][0]] for extrema in corrected_extrema]
+    for i in range(len(corrected_extrema)):
+        mean_pop.append(mean_vals[i])
+        sigma_pop.append(sig_vals[i])
+
+
+    ##x is the phase space of angles, equal to the minimum + 360 degrees for a periodic angle
+    xline=np.linspace(min(distribution),min(distribution)+360,10000)                
+    
+    ##choosing the fitting mode
+    peak_number=[gauss,bimodal,trimodal,quadmodal,quinmodal]
+    mode=peak_number[len(sig_vals)-1]
+    
+    ##setting the guess parameters
+    expected=[]
+    for i in range(len(mean_pop)):
+        expected.append(mean_pop[i])
+        expected.append(sigma_pop[i])
+        expected.append(corrected_extrema[i])
+    
+    ##using curve fit module to adjust the guess parameters to fit properly
+    params,cov=curve_fit(mode,distributionx,distributiony,expected)
+   
+    ##plot to visualise if the distributions look accurate
+    ##we fit as many gaussians as needed when visualising the data
+    ##for this receptor it was no more than 5 gaussians
+    plt.figure()
+    sns.distplot(distribution,bins=binnumber) 
+    plt.title(file_list[0][resindex])
+    gaussians=[]
+    colours=['m','g','c','r','b']
+    for j in np.linspace(0,(len(params))-3,len(params)/3):
+        gaussians.append(gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]))
+        plt.plot(xline,gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]),
+                 color=colours[np.where(np.linspace(0,(len(params))-3,len(params)/3)==j)[0][0]], linewidth=2)
+
+    return gaussians, xline
+
+
+'OBTAINING THE GAUSSIAN INTERSECTS'
+##discretising each state by gaussian intersects
+def get_intersects(gaussians,distribution,xline):
+    ##adding the minimum angle value as the first boundary
+    all_intersects=[min(distribution)]
+    for i in range(len(gaussians)-1):
+        ##First calculate gaussian1 - gaussian2 and the corresponding signs using np.sign. 
+        ##Applying np.diff reveals all the positions where the sign changes (e.g. the lines cross). 
+        ##Using np.argwhere gives us the exact indices.
+        idx = np.argwhere(np.diff(np.sign(gaussians[i] - gaussians[i+1]))).flatten()
+        ##if there is only 1 intersect then use that intersect
+        if len(idx)==1:
+            all_intersects.append(xline[idx][0])
+            
+        ##if theres more than 1 intersect 
+        elif len(idx)!=0:
+            ##intersects can occur at multiple places
+            ##this selects the first intersect after the maximum of the 
+            ##gaussian on the left, which stops intersects occuring when
+            ##the gaussians trail to zero further right on the plot
+            int1=[]
+            for intersect in idx:
+                maxy_x_axis=xline[np.where(gaussians[i] == max(gaussians[i]))][0]
+                if xline[intersect]>maxy_x_axis:
+                    int1.append(xline[intersect])
+            all_intersects.append(min(int1))
+            
+        ##visually inspect every intersect to make sure it looks correct
+        plt.axvline(all_intersects[-1],color='k',lw=1,ls='--')
+        
+    all_intersects.append(max(distribution))
+    return all_intersects
+
+'CALCULATING THE MUTUAL PROBABILITIES'
+def calc_mut_prob(list1,list2,intersects1, intersects2):
+    ##making a matrix to create boxes for the bivariate state
+    mutual_prob=np.zeros((len(intersects1)-1,len(intersects2)-1))
+
+    for a, b in list(itertools.product(*[range(len(intersects1)-1),
+                                         range(len(intersects2)-1)])):
+
+        mutual_count=[x*y for x,y in zip([check(item1,intersects1[a],intersects1[a+1]) for item1 in list1],
+                                         [check(item2,intersects2[b],intersects2[b+1]) for item2 in list2])]
+    
+        mutual_prob[a][b]=mutual_count.count(1)/len(mutual_count)
+            
+    return mutual_prob
+    
+##this function requires a list for chi1 and chi2 dihedral angles 
+##using the same function for the CSI but instead only obtaining the intersects of the distributions
+def extract_inf_mat_row(pair_of_residues):
+    
+    
+    ##data import for the residues and waters
+    
+#    files1 = [f.split("chi1/")[1] for f in glob.glob("na4dkl/allchis/chi1/" + "**/*.xvg", recursive=True)]
+#    files2 = [g.split("chi1/")[1] for g in glob.glob("nona4dkl/allchis/chi1/" + "**/*.xvg", recursive=True)]
+#    files3 = [h.split("chi1/")[1] for h in glob.glob("prot4dkl/allchis/chi1/" + "**/*.xvg", recursive=True)]
+#    
+    files1 = [f.split("chi1/")[1] for f in glob.glob("waterallchis/na/chi1/" + "**/*.txt", recursive=True)]
+    files2 = [f.split("chi1/")[1] for f in glob.glob("waterallchis/nona/chi1/" + "**/*.txt", recursive=True)]
+    files3 = [f.split("chi1/")[1] for f in glob.glob("waterallchis/prot/chi1/" + "**/*.txt", recursive=True)]
+
+    file_list=[files1,files2,files3]
+#    files_ordered=[[],[],[]]
+    
+    ##parsing the data by separating the residue number and re-ordering the lists numerically
+#    for i in range(len(files_ordered)):
+#        for r in file_list[i]:
+#            j=re.split('(\d+)',r)
+#            files_ordered[i].append(j)
+#        files_ordered[i].sort(key = lambda x: int(x[1]))
+#        
+#    ##adding together the strings to create one string
+#    for i in range(len(files_ordered)):
+#        for j in range(len(files_ordered[i])):
+#            files_ordered[i][j]=files_ordered[i][j][0]+files_ordered[i][j][1]+files_ordered[i][j][2]
+
+#    
+    
+    res1=pair_of_residues[0]
+    res2=pair_of_residues[1]
+    
+    ##adjust the list names for res and water
+    gro_res_list=range(len(file_list[0]))
+
+    ##for residues use files_ordered
+    # names=files_ordered[0]
+    
+    ##for water use file_list
+    names=file_list[0]
+
+    selection1=gro_res_list.index(res1)
+    selection2=gro_res_list.index(res2)
+
+
+    "choose a set of microswitches to study the communication between them"
+    info_transfer=[selection1,selection2]
+    state_limits=[]
+
+    for residue in info_transfer:
+        ##calculating the bivariate state by doing info transfer between
+        ##each chi angle of the same residue to get the mutual prob
+        switch_transfer=[residue,residue]
+        
+        ## storing the dihedral state intersects for the mutual probability calculations
+        intersection_of_states=[]
+
+        ## importing the data
+        print('Importing the data')
+        
+        ##importing water data
+        na_X1 = list(np.genfromtxt("waterallchis/na/chi1/" + names[residue]))
+        na_X2 = list(np.genfromtxt("waterallchis/na/chi2/" + names[residue]))
+        nona_X1 = list(np.genfromtxt("waterallchis/nona/chi1/" + names[residue]))
+        nona_X2 = list(np.genfromtxt("waterallchis/nona/chi2/" + names[residue]))
+        prot_X1 = list(np.genfromtxt("waterallchis/prot/chi1/" + names[residue]))
+        prot_X2 = list(np.genfromtxt("waterallchis/prot/chi2/" + names[residue]))
+        
+
+#        ##importing residue data
+#        na_X1 = xgv_to_list("na4dkl/allchis/chi1/" + names[residue])[1]
+#        #import chi2 file if it exists
+#        my_file = Path("na4dkl/allchis/chi2/" + names[residue])
+#        if my_file.is_file():
+#            na_X2 = xgv_to_list("na4dkl/allchis/chi2/" + names[residue])[1]
+#
+#        
+#        nona_X1 = xgv_to_list("nona4dkl/allchis/chi1/" + names[residue])[1]
+#        my_file = Path("nona4dkl/allchis/chi2/" + names[residue])
+#        if my_file.is_file():
+#            nona_X2 = xgv_to_list("nona4dkl/allchis/chi2/" + names[residue])[1]
+#        
+#        prot_X1 = xgv_to_list("prot4dkl/allchis/chi1/" + names[residue])[1]
+#        my_file = Path("prot4dkl/allchis/chi2/" + names[residue])
+#        if my_file.is_file():
+#            prot_X2 = xgv_to_list("prot4dkl/allchis/chi2/" + names[residue])[1]
+
+        ##this counts which iteration the loop is on for the chi value
+        count=0
+        """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+        """""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""          
+        "OBTAINING BIVARIATE DIHEDRAL STATE"
+        for microswitch_number in switch_transfer:
+            
+            
+            ##WATERS
+            
+            ##choose the pair of simulations for the causal input
+            h2o_dists=[na_X1+ nona_X1, na_X2+nona_X2]
+#            h2o_dists=[nona_X1+prot_X1,nona_X2+prot_X2]
+            
+            ##for water this gets rid of the artifical empty state for the distribution limit calculation
+            dist=[item for item in h2o_dists[count] if item != 10000.0]
+            chi_of_interest=periodic_correction(dist)   
+            gaussians, xline = get_gaussian_fit(chi_of_interest)            
+
+            ##discretising each state by gaussian intersects       
+            h2o_states=[]
+            h2o_states.append(get_intersects(gaussians,chi_of_interest,xline))
+            h2o_states[-1].append(20000.0)
+            intersection_of_states.append(h2o_states[0])   
+
+
+
+            ##RESIDUES
+
+            ##adding the chi1 angles for a single residue together for all simulation
+            ##and correcting the periodic boundary conditions
+#            if count==0:        
+
+#                chi_of_interest = periodic_correction(na_X1+nona_X1)
+##                chi_of_interest = periodic_correction(nona_X1+prot_X1)
+#               
+#                ##obtaining the gaussian fit
+#                gaussians, xline = get_gaussian_fit(chi_of_interest)            
+#                intersection_of_states.append(get_intersects(gaussians,chi_of_interest,xline))   
+#
+#            elif my_file.is_file():
+#                chi_of_interest = periodic_correction(na_X2+nona_X2)
+##                chi_of_interest = periodic_correction(nona_X2+prot_X2)
+#          
+#                ##obtaining the gaussian fit
+#                gaussians, xline = get_gaussian_fit(chi_of_interest)
+#                ##discretising each state by gaussian intersects       
+#                intersection_of_states.append(get_intersects(gaussians,chi_of_interest,xline))   
+
+
+            count+=1
+            ##END OF LOOP
+
+        ##appending the state limits into a list
+        if len(intersection_of_states)>1: 
+            state_limits.append(intersection_of_states[-2])
+        state_limits.append(intersection_of_states[-1])
+        
+
+    ##taking the final two state limits, for chi1 angles this just takes the last one state limit
+    resstates=intersection_of_states[-2:]
+    print(resstates)
+    ##double check these limits match the plots
+    
+    
+    ##exporting the data as a file to be imported for the CSI calculation
+    
+#    filename='state_intersects/na_nona/'+files_ordered[0][residue][:-4]+'state_intersects.txt'
+#    filename='waterallchis/nona_prot_state/'+file_list[0][residue][:-4]+'state_intersects.txt'
+
+#    print('SAVED ', filename)
+#    print('FINISHED RESIDUE ', residue)
+#    np.savetxt(filename,resstates,fmt='%.4s')
+    
+#    with open(filename, 'w') as output:
+#        for row in resstates:
+#            output.write(str(row) + '\n')
+        
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+'END OF FUNCTIONS'
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+##WATER DATA IMPORT
+
+files1 = [f.split("chi1/")[1] for f in glob.glob("waterallchis/na/chi1/" + "**/*.txt", recursive=True)]
+files2 = [f.split("chi1/")[1] for f in glob.glob("waterallchis/nona/chi1/" + "**/*.txt", recursive=True)]
+files3 = [f.split("chi1/")[1] for f in glob.glob("waterallchis/prot/chi1/" + "**/*.txt", recursive=True)]
+
+file_list=[files1,files2,files3]
+
+#RESIDUE DATA IMPORT
+
+#files1 = [f.split("chi1/")[1] for f in glob.glob("na4dkl/allchis/chi1/" + "**/*.xvg", recursive=True)]
+#files2 = [g.split("chi1/")[1] for g in glob.glob("nona4dkl/allchis/chi1/" + "**/*.xvg", recursive=True)]
+#files3 = [h.split("chi1/")[1] for h in glob.glob("prot4dkl/allchis/chi1/" + "**/*.xvg", recursive=True)]
+
+#file_list=[files1,files2,files3]
+#files_ordered=[[],[],[]]
+
+
+##files_ordered=[[],[],[]]
+#
+###parsing the data by separating the residue number and re-ordering the lists numerically
+#for i in range(len(files_ordered)):
+#    for r in file_list[i]:
+#        j=re.split('(\d+)',r)
+#        files_ordered[i].append(j)
+#    files_ordered[i].sort(key = lambda x: int(x[1]))
+#    
+###adding together the strings to create one string
+#for i in range(len(files_ordered)):
+#    for j in range(len(files_ordered[i])):
+#        files_ordered[i][j]=files_ordered[i][j][0]+files_ordered[i][j][1]+files_ordered[i][j][2]
+
+
+##MAKING A LIST TO ITERATIVELY AUTOMATE THE STATE LIMIT FINDING FUNCTION
+gro_res_list=range(len(file_list[0]))
+
+inf_mat_indices = list(itertools.combinations(gro_res_list,2))
+
+##FINDING THE LIMITS
+extract_inf_mat_row((resindex,resindex))
