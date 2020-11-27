@@ -3,8 +3,16 @@
 """
 Created on Wed Oct  2 11:03:31 2019
 @author: neilthomson
+
+This script is designed to obtain a distribution for the water pockets which respresents
+a combination of the water occupancy (binary variable) and the water polarisation (continuous variable).
+
+For a water molecule to exist within a water pocket, all three water atoms must occupy the pocket. 
+
+If there is ever an instance where two water molecules occupy the same pocket at the same time,
+then the water polarisation of the molecule ID that occupies the pocket most often is used.
+
 """
-#https://www.mdanalysis.org/
 
 import MDAnalysis
 import MDAnalysis.analysis.hbonds
@@ -15,15 +23,13 @@ import math
 import re
 from tqdm import tqdm
 
-##frame rate for the water angles should be adjusted according to t=0.249ns - the
-##fastest auto-correlation time for waters in reference below
-##https://reader.elsevier.com/reader/sd/pii/S0006349516306580?token=A321CBF83921B527B557865955ACA1D2C859AA2F94D3622497167DEB71D43165CCBD843D2175F07757B6A8F9EE2F2EDF
-
+       
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-'FUNCTION'
+'FUNCTIONS'
 
 'OBTAINING THE DIPOLE ANGLES FOR EACH BINDING SITE'
+##this function converts the cosine of the dipole moment into spherical coordinates 
 def get_dipole(water_atom_positions):
     
     ##obtaining the coordinates for each of the individual atoms
@@ -42,7 +48,7 @@ def get_dipole(water_atom_positions):
     y_axis=unitdipVector0[0][1]
     z_axis=unitdipVector0[0][2]
     
-    ##converting the cosine of the dipole about each axis into phi and psi spherical coordinates
+    ##converting the cosine of the dipole about each axis into phi and psi
     psi=math.degrees(np.arctan2(y_axis,x_axis))
     phi=math.degrees(np.arccos(z_axis/(np.sqrt(x_axis**2+y_axis**2+z_axis**2))))   
 
@@ -57,21 +63,12 @@ def get_dipole(water_atom_positions):
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""      
 """"""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""      
         
-##looping over all the simulations and waters to obtain
-##water angles for all 5 waters in each simulation
-
-##run1=water number
-##run2=simulation number
-for run1 in range(5):
-    for run2 in range(3):   
+for water_pocket_number in [0]:
+    for simulation_number in [0]:   
          
         ##obtaining the 'universe', i.e. the complete tractory and topology information of the simulation
-        if run2==0:
-            u = MDAnalysis.Universe('../../4dkl/na4dkl/protein_sol.gro', '../../4dkl/na4dkl/allsol.xtc')
-        if run2==1:
-            u = MDAnalysis.Universe('../../4dkl/nona4dkl/protein_sol.gro', '../../4dkl/nona4dkl/allsol.xtc')
-        if run2==2:
-            u = MDAnalysis.Universe('../../4dkl/prot4dkl/protein_sol.gro', '../../4dkl/prot4dkl/allsol.xtc')
+        if simulation_number==0:
+            u = MDAnalysis.Universe('E250chargedD349charged/protein_sol.gro', 'E250chargedD349charged/trajfull240framrate.xtc')
 
         philist=[]
         psilist=[]
@@ -81,30 +78,13 @@ for run1 in range(5):
         ###extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound
         #print('extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound')
         for i in tqdm(range(len(u.trajectory))):       
-            
+
             u.trajectory[i]
-            
-            ##specifying the tetrahedrons and triangles whose centre of geometry forms the origin of 
-            ##the sphere for which each water pocket is defined by
-            
-            ##labelling uses a residue that is proximal to the water site
-            
-            ##n1.50 ==wat1
-            if run1==0:
-                waters_resid=u.select_atoms("resname SOL and sphzone 4 (name CA and (resid 86 or resid 110 or resid 114 or resid 332))").resids
-            ##n7.49 ==wat2
-            if run1==1:
-                waters_resid=u.select_atoms("resname SOL and sphzone 4 (name CA and (resid 287 or resid 328 or resid 332))").resids
-            ##c6.47 ==wat3
-            if run1==2:
-                waters_resid=u.select_atoms("resname SOL and sphzone 4 (name CA and (resid 292 or resid 295 or resid 321))").resids
-            ##d3.49 ==wat4
-            if run1==3:
-                waters_resid=u.select_atoms("resname SOL and sphzone 5 (name CA and (resid 163 or resid 179 or resid 184))").resids
-            ##w4.50 ==wat5
-            if run1==4:
-                waters_resid=u.select_atoms("resname SOL and sphzone 5 (name CA and (resid 109 or resid 157 or resid 187 or resid 191))").resids
-                                                
+            ##this is where the water pocket is defined as sphere of radius 5 
+            ##centred on centre of geometry of following CA atoms
+            if water_pocket_number==0:
+                waters_resid=u.select_atoms("resname SOL and sphzone 5 (name CA and (resid 50 or resid 74 or resid 78 or resid 301))").resids
+                             
             ##making a list of water residue IDs for every frame where all three atoms of the water appear in the pocket
             multi_waters_id=[]
             for elem in list(set(waters_resid)):
@@ -112,7 +92,7 @@ for run1 in range(5):
                     multi_waters_id.append(elem)
             counting.append(multi_waters_id)
         
-        ##making a list of the water IDs that appear in the simulation in that pocket (no duplicates)
+        ##making a list of the water IDs that appear in the simulation in that pocket (no dups)
         flat_list = [item for sublist in counting for item in sublist]
         no_dups=list(set(flat_list))
         
@@ -164,14 +144,12 @@ for run1 in range(5):
 #        plt.plot(np.histogram([elem for elem in psilist if elem !=10000.0],bins=60)[1][0:-1],np.histogram([elem for elem in psilist if elem !=10000.0],bins=60)[0],label='D2.50 + Na')
 #        plt.xlabel('$\psi$')
                 
-                
-        ##exporting the data
-        names1=['na','nona','prot']
-        names2=['n150','n749','c647','d349','w450']
+        simulation_names=['Echarged']
+        water_names=['n150',]
         
         
-        filepsi='waterallchis/'+str(names1[run2])+'4dkl_'+str(names2[run1])+'_water_distspsi.txt'
-        filephi='waterallchis/'+str(names1[run2])+'4dkl_'+str(names2[run1])+'_water_distsphi.txt'
+        filepsi='waterdistributions/'+str(simulation_names[simulation_number])+str(water_names[water_pocket_number])+'_water_distspsi.txt'
+        filephi='waterdistributions/'+str(simulation_names[simulation_number])+str(water_names[water_pocket_number])+'_water_distsphi.txt'
         
         np.savetxt(filepsi,np.array(psilist))
         np.savetxt(filephi,np.array(philist))
