@@ -4,7 +4,15 @@ tidy up our SSI/CoSSI functions so that they operate directly on a distribution 
 -make it so the coSSI is between two inputs and always includes the binary distribution, and the SSI is directly between simulation and residues
 -add the input info directly into the code so we do not need to import any 'inputinfo0' files.
 -generalise the concatenation of the trajectories into a function to smooth it up for generalised coSSI between any residues
-    
-tidy up state limit function so that it can operate directly on distribution rather than filesystems. Very minor bug fixing required to eliminate visual inspection of state discretizing function.
+COMPLETE
 
-Automate the water pocket definition so no pre-defined c-alphas are needed (I think this step will be a massive advance in GPCR/protein analysis – currently no one does this. I have very clear idea for this.)
+tidy up state limit function so that it can operate directly on distribution rather than filesystems. Very minor bug fixing required 
+to eliminate visual inspection of state discretizing function.
+COMPLETE
+
+Update periodic correction so that it is generalised for both waters and residues, or 
+any distribution with any periodic limit definition (e.g. [0,360] or [-180,180]).
+
+Update state_limit finding function to ensure reproducibility and correct discretiation of obscure distributions.
+
+Automate the water pocket definition so no pre-defined c-alphas are needed.
