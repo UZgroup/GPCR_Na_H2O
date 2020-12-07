@@ -4,12 +4,6 @@
 Created on Thu Mar 19 12:19:43 2020
 
 @author: neilthomson
-
-state_specific_info now has the capacity to calculate SSI and CoSSI directly from the distribution.
-
-There are now default arguments within SSI() and CoSSI() that allow these quantities to be calculated
-directly between two and three residues (SSI and CoSSI respectively), or between one and two residues and the binary simulation state (default). 
-
 """
 
 import numpy as np
@@ -99,7 +93,7 @@ def match_sim_lengths(sim1,sim2):
             sim1=sim1[0:len(sim2)]
         if len(sim1)<len(sim2):
             sim2=sim2[0:len(sim1)]  
-    return sim1, sim
+    return sim1, sim2
         
 
 def get_filenames(folder):  
@@ -117,20 +111,22 @@ def get_filenames(folder):
     
 
 #smoothing the kde data so that the extrema can be found without any of the small noise appearing as extrema
-def smooth(x,window_len,window='hanning'):
+def smooth(x,window_len,window=None):
+    if window is None:
+        window_type='hanning'
     if x.ndim != 1:
         raise ValueError
     if x.size < window_len:
         raise ValueError
     if window_len<3:
         return x
-    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
+    if not window_type in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
         raise ValueError
     s=np.r_[x[window_len-1:0:-1],x,x[-2:-window_len-1:-1]]
-    if window == 'flat': #moving average
+    if window_type  is  'flat': #moving average
         w=np.ones(window_len,'d')
     else:
-        w=eval('np.'+window+'(window_len)')
+        w=eval('np.'+window_type+'(window_len)')
     y=np.convolve(w/w.sum(),s,mode='valid')
     return y
 
@@ -196,7 +192,7 @@ def printKclosest(arr,n,x,k):
 
 
 ## obatining the gaussians that fit the distribution
-def get_gaussian_fit(distribution, binnumber=60, window_len=10, show_plots='no'):
+def get_gaussian_fit(distribution, binnumber=60, window_len=10, show_plots=None):
     histo=np.histogram(distribution, bins=binnumber, density=True)
     distributionx=smooth(histo[1][0:-1],window_len)
     distributiony=smooth(histo[0]-min(histo[0]),window_len)
@@ -243,7 +239,7 @@ def get_gaussian_fit(distribution, binnumber=60, window_len=10, show_plots='no')
         expected.append(sigma_pop[i])
         expected.append(corrected_extrema[i])    
     params,cov=curve_fit(mode,distributionx,distributiony,expected)   
-    if show_plots=='yes':
+    if show_plots is not None:
         plt.figure()
         sns.distplot(distribution,bins=binnumber) 
     gaussians=[]
@@ -251,14 +247,14 @@ def get_gaussian_fit(distribution, binnumber=60, window_len=10, show_plots='no')
     gaussnumber=np.linspace(0,(len(params))-3,int(len(params)/3))    
     for j in gaussnumber:
         gaussians.append(gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]))
-        if show_plots=='yes':
+        if show_plots is not None:
             plt.plot(xline,gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]),
                       color=colours[np.where(gaussnumber==j)[0][0]], linewidth=2)
     return gaussians, xline
 
 
 # OBTAINING THE GAUSSIAN INTERSECTS
-def get_intersects(gaussians,distribution,xline, show_plots='no'):
+def get_intersects(gaussians,distribution,xline, show_plots=None):
     ##discretising each state by gaussian intersects    
     ##adding the minimum angle value as the first boundary
     all_intersects=[min(distribution)]
@@ -270,7 +266,7 @@ def get_intersects(gaussians,distribution,xline, show_plots='no'):
         for intersect in idx:
             all_intersects.append(xline[intersect])            
     all_intersects.append(max(distribution))        
-    if show_plots=='yes':
+    if show_plots is not None:
         sns.distplot(distribution,bins=90) 
         for i in range(len(all_intersects)):
             plt.axvline(all_intersects[i],color='k',lw=1,ls='--')    
@@ -279,13 +275,13 @@ def get_intersects(gaussians,distribution,xline, show_plots='no'):
 
 ##this function requires a list of the distribution you want to cluster/discretize into states
 ##this can be applied to a list of all filenames in a directory where every filename is a list of the distributions
-def extract_state_limits(distr,show_plots='no'):    
+def extract_state_limits(distr):    
     pbc_shifted_dist = periodic_correction(distr)              
     ##obtaining the gaussian fit
     gaussians, xline = get_gaussian_fit(pbc_shifted_dist)            
     ##discretising each state by gaussian intersects       
-    intersection_of_states=get_intersects(gaussians,pbc_shifted_dist,xline,show_plots)   
-    return intersection_of_states
+    intersection_of_states=get_intersects(gaussians,pbc_shifted_dist,xline)   
+    return pbc_shifted_dist, intersection_of_states
 
 def calculate_entropy(state_limits,distribution_list):
     ## subtract 1 since number of partitions = number of states - 1
@@ -318,11 +314,13 @@ def calculate_entropy(state_limits,distribution_list):
 
 ##this function requires a list of angles for SSI
 ##SSI(A,B) = H(A) + H(B) - H(A,B)
-def calculate_ssi(set_distr_a, set_distr_b='binary'):
+def calculate_ssi(set_distr_a, set_distr_b=None):
     
     ##calculating the entropy for set_distr_a
-    if sum(1 for x in set_distr_a if isinstance(x, list))==0:
+    ## if set_distr_a only contains one distributions
+    if any(isinstance(i, list) for i in set_distr_a) is 0:
         distr_a=[set_distr_a]
+    ## else set_distr_a is a nested list of multiple distributions (bivariate)
     else:
         distr_a=[i for i in set_distr_a]
     distr_a_states=[]
@@ -331,99 +329,110 @@ def calculate_ssi(set_distr_a, set_distr_b='binary'):
     H_a=calculate_entropy(distr_a_states,distr_a)
     
     ##calculating the entropy for set_distr_b
-    if set_distr_b=='binary':
+    ## if no dist (None) then apply the binary dist for two simulations
+    if set_distr_b is None:       
         H_b=1
         distr_b=[[0.5]*int(len(distr_a[0])/2) + [1.5]*int(len(distr_a[0])/2)]
         distr_b_states= [[0,1,2]]  
         
-    elif sum(1 for x in set_distr_b if isinstance(x, list))==0:
-        distr_b=[set_distr_b]
-        distr_b_states=[]
-        for i in distr_b:
-            distr_b_states.append(extract_state_limits(i))
-        H_b=calculate_entropy(distr_b_states,distr_b)
     else:
-        distr_b=[i for i in set_distr_b]
-        distr_b_states=[]
-        for i in distr_b:
-            distr_b_states.append(extract_state_limits(i))
-        H_b=calculate_entropy(distr_b_states,distr_b)
+        if any(isinstance(i, list) for i in set_distr_b) is 0:
+            distr_b=[set_distr_b]
+            distr_b_states=[]
+            for i in distr_b:
+                distr_b_states.append(extract_state_limits(i))
+            H_b=calculate_entropy(distr_b_states,distr_b)
+        else:
+            distr_b=[i for i in set_distr_b]
+            distr_b_states=[]
+            for i in distr_b:
+                distr_b_states.append(extract_state_limits(i))
+            H_b=calculate_entropy(distr_b_states,distr_b) 
 
-
+    print(distr_a_states)
+    print(distr_b_states)
     ab_joint_states= distr_a_states + distr_b_states
     ab_joint_distributions= distr_a + distr_b
+    print(ab_joint_states)
     
-    H_ab=calculate_entropy(joint_states,joint_distributions)
+    H_ab=calculate_entropy(ab_joint_states,ab_joint_distributions)
 
-    SSI = H_a + H_b - H_ab
+    SSI = (H_a + H_b) - H_ab
         
     return SSI
 
 
-#conditional mutual info = H_ac + H_bc - H_abc - H_c
-def calculate_coSSI(distr_a, distr_b, distr_c='binary'):
+#CoSSI = H_a + H_b + H_c - H_ab - H_bc - H_ac + H_abc
+def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     
     ##calculating the entropy for set_distr_a
-    if sum(1 for x in set_distr_a if isinstance(x, list))==0:
+    if sum(1 for x in set_distr_a if isinstance(x, list)) is 0:
         distr_a=[set_distr_a]
     else:
         distr_a=[i for i in set_distr_a]
     distr_a_states=[]
     for i in distr_a:
         distr_a_states.append(extract_state_limits(i))
-    H_x=calculate_entropy(distr_a_states,distr_a)
+    H_a=calculate_entropy(distr_a_states,distr_a)
         
     ##----------------
     ##calculating the entropy for set_distr_b
-    if sum(1 for x in set_distr_b if isinstance(x, list))==0:
+    if sum(1 for x in set_distr_b if isinstance(x, list)) is 0:
         distr_b=[set_distr_b]
     else:
         distr_b=[i for i in set_distr_b]
     distr_b_states=[]
-    for i in distr_a:
+    for i in distr_b:
         distr_b_states.append(extract_state_limits(i))
-    H_y=calculate_entropy(distr_b_states,distr_b)    
+    H_b=calculate_entropy(distr_b_states,distr_b) 
     
     ##----------------
     ##calculating the entropy for set_distr_c
-    if set_distr_c=='binary':
-        H_z=1
-        distr_c=[[0.5]*int(len(distr_a)/2) + [1.5]*int(len(distr_a)/2)]
+    ## if no dist (None) then apply the binary dist for two simulations
+    if set_distr_c is None:
+        H_c=1
+        distr_c=[[0.5]*int(len(distr_a[0])/2) + [1.5]*int(len(distr_a[0])/2)]
         distr_c_states= [[0,1,2]]  
-        
-    elif sum(1 for x in set_distr_c if isinstance(x, list))==0:
-        distr_c=[set_distr_c]
-        distr_c_states=[]
-        for i in distr_c:
-            distr_c_states.append(extract_state_limits(i))
-        H_z=calculate_entropy(distr_c_states,distr_c)
-    else:
-        distr_c=[i for i in set_distr_c]
-        distr_c_states=[]
-        for i in distr_c:
-            distr_c_states.append(extract_state_limits(i))
-        H_z=calculate_entropy(distr_c_states,distr_c)
+    else: 
+        set_distr_c=set_distr_c
+        if sum(1 for x in set_distr_c if isinstance(x, list)) is 0:
+            distr_c=[set_distr_c]
+            distr_c_states=[]
+            for i in distr_c:
+                distr_c_states.append(extract_state_limits(i))
+            H_c=calculate_entropy(distr_c_states,distr_c)
+        else:
+            distr_c=[i for i in set_distr_c]
+            distr_c_states=[]
+            for i in distr_c:
+                distr_c_states.append(extract_state_limits(i))
+            H_c=calculate_entropy(distr_c_states,distr_c)
 
+    ##----------------
+    ab_joint_states= distr_a_states + distr_b_states
+    ab_joint_distributions= distr_a + distr_b
+    
+    H_ab=calculate_entropy(ab_joint_states,ab_joint_distributions)
     ##----------------
     ac_joint_states= distr_a_states + distr_c_states 
     ac_joint_distributions= distr_a + distr_c
     
-    H_ac= calculate_entropy(bi_joint_states,bi_joint_distributions)
+    H_ac= calculate_entropy(ac_joint_states,ac_joint_distributions)
     ##----------------
     bc_joint_states= distr_b_states + distr_c_states 
     bc_joint_distributions= distr_b + distr_c
     
-    H_bc= calculate_entropy(bi_joint_states,bi_joint_distributions)
+    H_bc= calculate_entropy(bc_joint_states,bc_joint_distributions)
     ##----------------
     abc_joint_states= distr_a_states + distr_b_states + distr_c_states 
     abc_joint_distributions= distr_a + distr_b + distr_c
     
-    H_abc=calculate_entropy(bi_joint_states,bi_joint_distributions)    
+    H_abc=calculate_entropy(abc_joint_states,abc_joint_distributions)    
     
     
-    SSI = H_a + H_b - H_ab
-    co-SSI = H_a + H_b + H_c - H_ab - H_ac - H_bc + H_abc 
+    SSI = (H_a + H_b) - H_ab
+    coSSI = (H_a + H_b + H_c) - (H_ab + H_ac + H_bc) + H_abc 
         
-    return SSI, co-SSI
-
- 
+    return SSI, coSSI
+  
+    
