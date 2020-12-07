@@ -267,6 +267,7 @@ def get_intersects(gaussians,distribution,xline, show_plots=None):
             all_intersects.append(xline[intersect])            
     all_intersects.append(max(distribution))        
     if show_plots is not None:
+        plt.figure()
         sns.distplot(distribution,bins=90) 
         for i in range(len(all_intersects)):
             plt.axvline(all_intersects[i],color='k',lw=1,ls='--')    
@@ -275,11 +276,11 @@ def get_intersects(gaussians,distribution,xline, show_plots=None):
 
 ##this function requires a list of the distribution you want to cluster/discretize into states
 ##this can be applied to a list of all filenames in a directory where every filename is a list of the distributions
-def extract_state_limits(distr):    
+def extract_state_limits(distr, show_plots=None):    
     ##obtaining the gaussian fit
     gaussians, xline = get_gaussian_fit(distr)            
     ##discretising each state by gaussian intersects       
-    intersection_of_states=get_intersects(gaussians,distr,xline)   
+    intersection_of_states=get_intersects(gaussians,distr,xline,show_plots)   
     return intersection_of_states
 
 def calculate_entropy(state_limits,distribution_list):
@@ -324,7 +325,7 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
         distr_a=[periodic_correction(i) for i in set_distr_a]
     distr_a_states=[]
     for i in distr_a:
-        distr_a_states.append(extract_state_limits(i))
+        distr_a_states.append(extract_state_limits(i,show_plots=True))
     H_a=calculate_entropy(distr_a_states,distr_a)
     
     ##calculating the entropy for set_distr_b
@@ -426,5 +427,7 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     coSSI = (H_a + H_b + H_c) - (H_ab + H_ac + H_bc) + H_abc 
         
     return SSI, coSSI
+
+    
     
     
