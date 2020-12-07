@@ -36,33 +36,38 @@ def check(value,x,y):
 
 #CORRECTING FOR THE PERIODICITY OF ANGLES
 def periodic_correction(angle1):
+    new_dist=angle1.copy()
     ##generating a histogram of the chi angles
-    heights=np.histogram(angle1, bins=90, density=True)
-    ##if the first bar height is greater than the minimum cut off
-    ##then find the smallest bar and shift everything before that bar by 360
-    if heights[0][0] > max(heights[0])*0.0005:   
+    heights=np.histogram(new_dist, bins=90, density=True)
+    ##if the first bar height is not the minimum bar height
+    ##then find the minimum bar and shift everything before that bar by 360
+    if heights[0][0] != min(heights[0]):   
+    # if heights[0][0] > max(heights[0])*0.0005:   
         ##set the periodic boundary to the first minimum in the distribution
-        ##find the minimum angle by multiplying thre minimum bin number by the size of the bins
+        ##find the minimum angle by multiplying the minimum bin number by the size of the bins
         ##define the new periodic boundary for the shifted values
         ##ned to subtract 180 as distributions go [-180,180]
         j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))-180
-        for k in range(len(angle1)):
+        for k in range(len(new_dist)):
             ##if the angle is before the periodic boundary, shift by 360
-            if angle1[k] <= j:
-                angle1[k]+=360
-    return angle1
+            if new_dist[k] <= j:
+                new_dist[k]+=360
+    
+    return new_dist
 
 
 #CORRECTING FOR THE PERIODICITY OF WATER ANGLES
 def periodic_correction_h2o(angle1):
+    new_dist=angle1.copy()
     ##angle positions
-    dipole_angle = [i for i in angle1 if i != 10000.0]
-    indices = [i for i, x in enumerate(angle1) if x != 10000.0]
+    dipole_angle = [i for i in new_dist if i != 10000.0]
+    indices = [i for i, x in enumerate(new_dist) if x != 10000.0]
     ##generating a histogram of the chi angles
     heights=np.histogram(dipole_angle, bins=90, density=True)
     ##if the first bar height is greater than the minimum cut off
     ##then find the smallest bar and shift everything before that bar by 360
-    if heights[0][0] > max(heights[0])*0.0005:   
+    if heights[0][0] != min(heights[0]):   
+    # if heights[0][0] > max(heights[0])*0.0005:   
         ##set the periodic boundary to the first minimum in the distribution
         ##find the minimum angle by multiplying thre minimum bin number by the size of the bins
         ##define the new periodic boundary for the shifted values
@@ -72,8 +77,8 @@ def periodic_correction_h2o(angle1):
             if dipole_angle[k] <= j:
                 dipole_angle[k]+=360
     for i in range(len(indices)):
-        angle1[indices[i]] = dipole_angle[i]
-    return angle1
+        new_dist[indices[i]] = dipole_angle[i]
+    return new_dist
 
 
 def import_distribution(simulation_folder, file_name):
@@ -325,9 +330,9 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
         distr_a=[periodic_correction(i) for i in set_distr_a]
     distr_a_states=[]
     for i in distr_a:
-        distr_a_states.append(extract_state_limits(i,show_plots=True))
-    H_a=calculate_entropy(distr_a_states,distr_a)
-    
+        distr_a_states.append(extract_state_limits(i))
+    H_a=calculate_entropy(distr_a_states,distr_a) 
+            
     ##calculating the entropy for set_distr_b
     ## if no dist (None) then apply the binary dist for two simulations
     if set_distr_b is None:       
@@ -345,13 +350,8 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
             distr_b_states.append(extract_state_limits(i))
         H_b=calculate_entropy(distr_b_states,distr_b)
 
-
-
-    print(distr_a_states)
-    print(distr_b_states)
     ab_joint_states= distr_a_states + distr_b_states
     ab_joint_distributions= distr_a + distr_b
-    print(ab_joint_states)
     
     H_ab=calculate_entropy(ab_joint_states,ab_joint_distributions)
 
@@ -364,10 +364,10 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
 def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     
     ##calculating the entropy for set_distr_a
-    if sum(1 for x in set_distr_a if isinstance(x, list)) is 0:
-        distr_a=[set_distr_a]
+    if any(isinstance(i, list) for i in set_distr_a) is 0:
+        distr_a=[periodic_correction(set_distr_a)]
     else:
-        distr_a=[i for i in set_distr_a]
+        distr_a=[periodic_correction(i) for i in set_distr_a]
     distr_a_states=[]
     for i in distr_a:
         distr_a_states.append(extract_state_limits(i))
@@ -375,10 +375,10 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
         
     ##----------------
     ##calculating the entropy for set_distr_b
-    if sum(1 for x in set_distr_b if isinstance(x, list)) is 0:
-        distr_b=[set_distr_b]
+    if any(isinstance(i, list) for i in set_distr_b) is 0:
+        distr_b=[periodic_correction(set_distr_b)]
     else:
-        distr_b=[i for i in set_distr_b]
+        distr_b=[periodic_correction(i) for i in set_distr_b]
     distr_b_states=[]
     for i in distr_b:
         distr_b_states.append(extract_state_limits(i))
@@ -427,7 +427,3 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     coSSI = (H_a + H_b + H_c) - (H_ab + H_ac + H_bc) + H_abc 
         
     return SSI, coSSI
-
-    
-    
-    
