@@ -185,6 +185,7 @@ def printKclosest(arr,n,x,k):
 def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None):    
     histo=np.histogram(distribution, bins=binnumber, density=True)
     distributionx=smooth(histo[1][0:-1],window_len)
+    ##this shifts the histo values down by the minimum value to help with finding a minimum
     distributiony=smooth(histo[0]-min(histo[0]),window_len)
     ##getting an array of all the maxima indices
     maxima = [distributiony[item] for item in argrelextrema(distributiony, np.greater)][0]
@@ -244,7 +245,7 @@ def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None)
 
 
 # OBTAINING THE GAUSSIAN INTERSECTS
-def get_intersects(gaussians,distribution,xline, show_plots=None):
+def get_intersects(gaussians,distribution,xline, show_plots=True):
     ##discretising each state by gaussian intersects    
     ##adding the minimum angle value as the first boundary
     all_intersects=[min(distribution)]
@@ -274,7 +275,7 @@ def extract_state_limits(distr, show_plots=None):
     ##obtaining the gaussian fit
     gaussians, xline = get_gaussian_fit(distribution)            
     ##discretising each state by gaussian intersects       
-    intersection_of_states=get_intersects(gaussians,distr,xline,show_plots)   
+    intersection_of_states=get_intersects(gaussians,distr,xline)   
     if distr.count(10000.0)>=1:
         intersection_of_states.append(20000.0)  
     
@@ -424,3 +425,38 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     return SSI, coSSI
 
 
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+'END OF FUNCTIONS'
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
+""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
+
+filenames=get_filenames("SSI_PBCtest/")
+
+
+
+a=import_distribution("SSI_PBCtest/","NAasn150chi2.xvg")    
+b=import_distribution("SSI_PBCtest/","NONAasn150chi2.xvg")
+a, b = match_sim_lengths(a,b)
+c=[a[1]+b[1]]
+
+
+# a= list(np.genfromtxt("SSI_PBCtest/NONAwat1chi2.xvg"))   
+# b= list(np.genfromtxt("SSI_PBCtest/PROTwat1chi2.xvg"))
+# a, b = match_sim_lengths(a,b)
+# c=[a+b]
+
+        
+# ssi,cossi=calculate_cossi(c,c,c)
+# print(i,ssi,cossi)    
+    
+ssi=calculate_ssi(c,c)
+print(ssi)
+
+
+
+
+    
+    
+    
+    
