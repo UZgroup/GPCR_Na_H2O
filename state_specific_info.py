@@ -32,52 +32,37 @@ def check(value,x,y):
         return 1
     else:
         return 0
-
+    
 
 #CORRECTING FOR THE PERIODICITY OF ANGLES
 def periodic_correction(angle1):
     new_dist=angle1.copy()
+    ##removing any discrete states for water occupancy 
+    continuous_angles = [i for i in new_dist if i != 10000.0]
+    ##indexing all the continuous distribution angles
+    index_cont_angles = [i for i, x in enumerate(new_dist) if x != 10000.0]      
+    ##the periodicity on gmx_chi goes [-180,180]
+    ##this shifts the periodicity for distributions that sample the [180,0] region
+    ##so that the same periodic correction can be used on waters [0,360] and residues [-180,180]    
+    if min(angle1)>0:
+        shift_dist=continuous_angles
+    else:
+        shift_dist=[i+180 for i in continuous_angles]
     ##generating a histogram of the chi angles
-    heights=np.histogram(new_dist, bins=90, density=True)
+    heights=np.histogram(shift_dist, bins=90, density=True)
     ##if the first bar height is not the minimum bar height
     ##then find the minimum bar and shift everything before that bar by 360
-    if heights[0][0] != min(heights[0]):   
-    # if heights[0][0] > max(heights[0])*0.0005:   
+    if heights[0][0] > min(heights[0]):   
         ##set the periodic boundary to the first minimum in the distribution
         ##find the minimum angle by multiplying the minimum bin number by the size of the bins
         ##define the new periodic boundary for the shifted values
-        ##ned to subtract 180 as distributions go [-180,180]
-        j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))-180
-        for k in range(len(new_dist)):
-            ##if the angle is before the periodic boundary, shift by 360
-            if new_dist[k] <= j:
-                new_dist[k]+=360
-    
-    return new_dist
-
-
-#CORRECTING FOR THE PERIODICITY OF WATER ANGLES
-def periodic_correction_h2o(angle1):
-    new_dist=angle1.copy()
-    ##angle positions
-    dipole_angle = [i for i in new_dist if i != 10000.0]
-    indices = [i for i, x in enumerate(new_dist) if x != 10000.0]
-    ##generating a histogram of the chi angles
-    heights=np.histogram(dipole_angle, bins=90, density=True)
-    ##if the first bar height is greater than the minimum cut off
-    ##then find the smallest bar and shift everything before that bar by 360
-    if heights[0][0] != min(heights[0]):   
-    # if heights[0][0] > max(heights[0])*0.0005:   
-        ##set the periodic boundary to the first minimum in the distribution
-        ##find the minimum angle by multiplying thre minimum bin number by the size of the bins
-        ##define the new periodic boundary for the shifted values
         j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))
-        for k in range(len(dipole_angle)):
+        for k in range(len(shift_dist)):
             ##if the angle is before the periodic boundary, shift by 360
-            if dipole_angle[k] <= j:
-                dipole_angle[k]+=360
-    for i in range(len(indices)):
-        new_dist[indices[i]] = dipole_angle[i]
+            if shift_dist[k] <= j:
+                shift_dist[k]+=360
+    for i in range(len(index_cont_angles)):
+        new_dist[index_cont_angles[i]] = shift_dist[i]
     return new_dist
 
 
@@ -197,7 +182,7 @@ def printKclosest(arr,n,x,k):
 
 
 ## obatining the gaussians that fit the distribution
-def get_gaussian_fit(distribution, binnumber=60, window_len=10, show_plots=None):
+def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None):    
     histo=np.histogram(distribution, bins=binnumber, density=True)
     distributionx=smooth(histo[1][0:-1],window_len)
     distributiony=smooth(histo[0]-min(histo[0]),window_len)
@@ -270,23 +255,31 @@ def get_intersects(gaussians,distribution,xline, show_plots=None):
         idx = np.argwhere(np.diff(np.sign(gaussians[i] - gaussians[i+1]))).flatten()
         for intersect in idx:
             all_intersects.append(xline[intersect])            
-    all_intersects.append(max(distribution))        
+    all_intersects.append(max(distribution))  
+    
     if show_plots is not None:
         plt.figure()
         sns.distplot(distribution,bins=90) 
         for i in range(len(all_intersects)):
-            plt.axvline(all_intersects[i],color='k',lw=1,ls='--')    
+            plt.axvline(all_intersects[i],color='k',lw=1,ls='--')   
+                
     return all_intersects
     
 
 ##this function requires a list of the distribution you want to cluster/discretize into states
 ##this can be applied to a list of all filenames in a directory where every filename is a list of the distributions
 def extract_state_limits(distr, show_plots=None):    
+    new_dist=distr.copy()
+    distribution=[item for item in new_dist if item != 10000.0]
     ##obtaining the gaussian fit
-    gaussians, xline = get_gaussian_fit(distr)            
+    gaussians, xline = get_gaussian_fit(distribution)            
     ##discretising each state by gaussian intersects       
     intersection_of_states=get_intersects(gaussians,distr,xline,show_plots)   
-    return intersection_of_states
+    if distr.count(10000.0)>=1:
+        intersection_of_states.append(20000.0)  
+    
+    order_intersect=np.sort(intersection_of_states)  
+    return list(order_intersect)
 
 def calculate_entropy(state_limits,distribution_list):
     ## subtract 1 since number of partitions = number of states - 1
@@ -320,7 +313,7 @@ def calculate_entropy(state_limits,distribution_list):
 ##this function requires a list of angles for SSI
 ##SSI(A,B) = H(A) + H(B) - H(A,B)
 def calculate_ssi(set_distr_a, set_distr_b=None):
-    
+
     ##calculating the entropy for set_distr_a
     ## if set_distr_a only contains one distributions
     if any(isinstance(i, list) for i in set_distr_a) is 0:
@@ -331,6 +324,8 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
     distr_a_states=[]
     for i in distr_a:
         distr_a_states.append(extract_state_limits(i))
+        print(distr_a_states)
+        
     H_a=calculate_entropy(distr_a_states,distr_a) 
             
     ##calculating the entropy for set_distr_b
@@ -427,3 +422,5 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     coSSI = (H_a + H_b + H_c) - (H_ab + H_ac + H_bc) + H_abc 
         
     return SSI, coSSI
+
+
