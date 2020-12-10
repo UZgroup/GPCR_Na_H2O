@@ -423,40 +423,4 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     coSSI = (H_a + H_b + H_c) - (H_ab + H_ac + H_bc) + H_abc 
         
     return SSI, coSSI
-
-
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-'END OF FUNCTIONS'
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""       
-""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""""
-
-filenames=get_filenames("SSI_PBCtest/")
-
-
-
-a=import_distribution("SSI_PBCtest/","NAasn150chi2.xvg")    
-b=import_distribution("SSI_PBCtest/","NONAasn150chi2.xvg")
-a, b = match_sim_lengths(a,b)
-c=[a[1]+b[1]]
-
-
-# a= list(np.genfromtxt("SSI_PBCtest/NONAwat1chi2.xvg"))   
-# b= list(np.genfromtxt("SSI_PBCtest/PROTwat1chi2.xvg"))
-# a, b = match_sim_lengths(a,b)
-# c=[a+b]
-
-        
-# ssi,cossi=calculate_cossi(c,c,c)
-# print(i,ssi,cossi)    
-    
-ssi=calculate_ssi(c,c)
-print(ssi)
-
-
-
-
-    
-    
-    
-    
+   
