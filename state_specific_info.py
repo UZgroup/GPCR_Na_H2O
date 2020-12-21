@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Mar 19 12:19:43 2020
-
 @author: neilthomson
 """
 
@@ -41,39 +39,26 @@ def periodic_correction(angle1):
     continuous_angles = [i for i in new_dist if i != 10000.0]
     ##indexing all the continuous distribution angles
     index_cont_angles = [i for i, x in enumerate(new_dist) if x != 10000.0]      
-    ##the periodicity on gmx_chi goes [-180,180]
-    ##this shifts the periodicity for distributions that sample the [180,0] region
-    ##so that the same periodic correction can be used on waters [0,360] and residues [-180,180]    
-    if min(angle1)>0:
-        shift_dist=continuous_angles
-    else:
-        shift_dist=[i+180 for i in continuous_angles]
     ##generating a histogram of the chi angles
-    heights=np.histogram(shift_dist, bins=90, density=True)
+    heights=np.histogram(continuous_angles, bins=90, density=True)
     ##if the first bar height is not the minimum bar height
     ##then find the minimum bar and shift everything before that bar by 360
     if heights[0][0] > min(heights[0]):   
-        ##set the periodic boundary to the first minimum in the distribution
-        ##find the minimum angle by multiplying the minimum bin number by the size of the bins
-        ##define the new periodic boundary for the shifted values
-        j=np.where(heights[0] == min(heights[0]))[0][0]*(360.0/len(heights[0]))
-        for k in range(len(shift_dist)):
-            ##if the angle is before the periodic boundary, shift by 360
-            if shift_dist[k] <= j:
-                shift_dist[k]+=360
+        ##define the new periodic boundary for the shifted values as the first minima
+        j=heights[1][np.where(heights[0] == min(heights[0]))[0][0]+1]
+        for k in range(len(continuous_angles)):
+            ##if the angle is before the periodic boundary, shift by 2*pi
+            ## the boundaries in pyEMMA are in radians. [-pi, pi]
+            if continuous_angles[k] < j:
+                continuous_angles[k]+=2*np.pi
     for i in range(len(index_cont_angles)):
-        new_dist[index_cont_angles[i]] = shift_dist[i]
+        new_dist[index_cont_angles[i]] = continuous_angles[i]
     return new_dist
 
 
 def import_distribution(simulation_folder, file_name):
-    dist1 = [item[0] for item in list(np.genfromtxt(simulation_folder + file_name))]
-    my_file = Path(simulation_folder + file_name)
-    if my_file.is_file():
-        dist2 = [item[1] for item in list(np.genfromtxt(simulation_folder + file_name))]
-        return dist1, dist2
-    else:
-        return dist1
+    dists = np.genfromtxt(simulation_folder + file_name, dtype=float, delimiter=",")
+    return dists
     
     
 # this function makes sure that the two simulations are the same length
@@ -87,17 +72,8 @@ def match_sim_lengths(sim1,sim2):
         
 
 def get_filenames(folder):  
-    files = [f.split(folder)[1] for f in glob.glob(folder+ "**/*.xvg", recursive=True)]
-    files_ordered=[]
-    ##parsing the data by separating the residue number and re-ordering the lists numerically
-    for r in files:
-        j=re.split('(\d+)',r)
-        files_ordered.append(j)
-    files_ordered.sort(key = lambda x: int(x[1]))
-    ##adding together the strings to create one string
-    for i in range(len(files_ordered)):
-        files_ordered[i]=files_ordered[i][0]+files_ordered[i][1]+files_ordered[i][2]
-    return files_ordered
+    files = [f.split(folder)[1] for f in glob.glob(folder + "*", recursive=True)]
+    return files
     
 
 #smoothing the kde data so that the extrema can be found without any of the small noise appearing as extrema
@@ -182,7 +158,9 @@ def printKclosest(arr,n,x,k):
 
 
 ## obatining the gaussians that fit the distribution
-def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None):    
+## bin number is chosen based on 3 degree resolution (120 bins for 360 degrees)
+## smoothing is chosen based on 95% significance level (i.e. 0.05*binnumber) 
+def get_gaussian_fit(distribution, binnumber=120, window_len=6):    
     histo=np.histogram(distribution, bins=binnumber, density=True)
     distributionx=smooth(histo[1][0:-1],window_len)
     ##this shifts the histo values down by the minimum value to help with finding a minimum
@@ -192,7 +170,7 @@ def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None)
     ##the maxima may be an artifact of undersampling
     ##this grabs only the maxima that correspond to a density greater than the cutoff
     ##cutoff= 0.75% at a 99.25% significance level
-    ##which ignores only the states limits in which states are sampled less that 0.75% of the time
+    ##which ignores only the states limits in which states are sampled less that 1% of the time
     corrected_extrema=[item for item in maxima if item > max(distributiony)*0.0075]
     ##finding the guess parameters for the plots
     ##empty lists for the guess params to be added to
@@ -200,19 +178,21 @@ def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None)
     sigma_pop=[]
     ##number of closest neighbours
     ##setting for the sigma finding function
-    noc=6    
-    ##for all the extrema, find the 'noc' closest x coordinates that lie on the distribution
-    ##closest to a value of half of the maximum
+    noc=28
+    ##for all the extrema, find the 'noc' yval 
+    ##closest to half max yval
     ##this is to find the edges of the gaussians for calculating sigma
     sig_vals=[]
     for extrema in corrected_extrema:
-        ##finding the 6 y values closest to the half max value of each extrema
-        closest=printKclosest(distributiony, len(distributiony), extrema/2.0, noc)
-        ##finding the x coordinate corresponding to these values
+        
+        mean_xval=distributionx[np.where(distributiony==extrema)[0][0]]
+        ##finding the "noc" closest y values to the 1/2 max value of each extrema
+        closest=printKclosest(distributiony, len(distributiony), extrema*0.5, noc)
+        ##finding the x closest to the mean
         xlist=[np.where(distributiony==float(closesty))[0][0] for closesty in closest]
-        xsig=find_nearest(distributionx[xlist],distributionx[np.where(distributiony==extrema)[0][0]])
+        xsig=find_nearest(distributionx[xlist],mean_xval)
         ##obtaining the width of the distribution
-        sig=np.absolute(xsig-distributionx[np.where(distributiony==extrema)[0][0]])
+        sig=np.absolute(xsig-mean_xval)
         sig_vals.append(sig)        
     ##the mean x of the gaussian is the value of x at the peak of y
     mean_vals=[distributionx[np.where(distributiony==extrema)[0][0]] for extrema in corrected_extrema]
@@ -220,7 +200,7 @@ def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None)
         mean_pop.append(mean_vals[i])
         sigma_pop.append(sig_vals[i])
     ##x is the space of angles
-    xline=np.linspace(min(distribution),min(distribution)+360,10000)                
+    xline=np.linspace(min(distribution),max(distribution),10000)                
     ##choosing the fitting mode
     peak_number=[gauss,bimodal,trimodal,quadmodal,quinmodal,sexmodal,septmodal]
     mode=peak_number[len(sig_vals)-1]    
@@ -229,53 +209,81 @@ def get_gaussian_fit(distribution, binnumber=55, window_len=10, show_plots=None)
         expected.append(mean_pop[i])
         expected.append(sigma_pop[i])
         expected.append(corrected_extrema[i])    
-    params,cov=curve_fit(mode,distributionx,distributiony,expected)   
-    if show_plots is not None:
-        plt.figure()
-        sns.distplot(distribution,bins=binnumber) 
+    params,cov=curve_fit(mode,distributionx,distributiony,expected,maxfev=1000000)   
     gaussians=[]
-    colours=['m','g','c','r','b','y','k']
     gaussnumber=np.linspace(0,(len(params))-3,int(len(params)/3))    
     for j in gaussnumber:
         gaussians.append(gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]))
-        if show_plots is not None:
-            plt.plot(xline,gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]),
-                      color=colours[np.where(gaussnumber==j)[0][0]], linewidth=2)
     return gaussians, xline
 
 
 # OBTAINING THE GAUSSIAN INTERSECTS
-def get_intersects(gaussians,distribution,xline, show_plots=True):
+def get_intersects(gaussians,distribution,xline, show_plots=None):
     ##discretising each state by gaussian intersects    
     ##adding the minimum angle value as the first boundary
     all_intersects=[min(distribution)]
-    for i in range(len(gaussians)-1):        
+    
+    mean_gauss_xval=[]
+    for i in range(len(gaussians)):
+        mean_gauss_xval.append(xline[list(gaussians[i]).index(max(gaussians[i]))])
+        
+    gauss_mean_ordered=sorted(mean_gauss_xval)
+    reorder_indices=[mean_gauss_xval.index(i) for i in sorted(mean_gauss_xval)]    
+    ##sort gaussians in order of their mean xval for neighbouring intersects
+    ##Only accept gaussians if their maxima is above 0.03 (normalised histogram)
+    reorder_gaussians=[gaussians[i] for i in reorder_indices if max(gaussians[i])>0.03]
+        
+    for i in range(len(reorder_gaussians)-1):    
         ##First calculate f - g and the corresponding signs using np.sign. 
         ##Applying np.diff reveals all the positions where the sign changes (e.g. the lines cross). 
         ##Using np.argwhere gives us the exact indices of the state intersects
-        idx = np.argwhere(np.diff(np.sign(gaussians[i] - gaussians[i+1]))).flatten()
-        for intersect in idx:
-            all_intersects.append(xline[intersect])            
+        
+        idx = np.argwhere(np.diff(np.sign(reorder_gaussians[i] - reorder_gaussians[i+1]))).flatten()      
+        
+        if len(idx)==1:
+            all_intersects.append(xline[idx][0])
+            
+        elif len(idx)!=0:
+            ##intersects can occur at multiple places
+            ##this selects the intersect with the maximum probability
+            ##which stops intersects occuring when
+            ##the gaussians trail to zero further right on the plot
+            intersect_ymax=max([reorder_gaussians[i][intersect] for intersect in idx])
+            intersect_ymax_index=[item for item in idx if reorder_gaussians[i][item]==intersect_ymax]
+            
+            all_intersects.append(xline[intersect_ymax_index])
+
+            
     all_intersects.append(max(distribution))  
     
     if show_plots is not None:
-        plt.figure()
-        sns.distplot(distribution,bins=90) 
+        plt.figure()      
+        # histo=np.histogram(distribution, bins=120, density=True)
+        # distributionx=smooth(histo[1][0:-1],12)
+        # distributiony=smooth(histo[0]-min(histo[0]),12)
+        # plt.plot(distributionx,distributiony,ls='--',lw=3)
+        sns.distplot(distribution,bins=120) 
+        for j in range(len(reorder_gaussians)):
+            plt.plot(xline, reorder_gaussians[j], linewidth=2)        
         for i in range(len(all_intersects)):
             plt.axvline(all_intersects[i],color='k',lw=1,ls='--')   
-                
+        plt.xlabel('Radians')
+        plt.ylabel('Count')
+            
     return all_intersects
     
 
-##this function requires a list of the distribution you want to cluster/discretize into states
-##this can be applied to a list of all filenames in a directory where every filename is a list of the distributions
-def extract_state_limits(distr, show_plots=None):    
+##this function requires a distribution to cluster/discretize into states
+##The function handles both residue angle distributions and water orientation/occupancy
+##distributions. For waters, the assignment of an additional non-angular state is performed if
+## changes in pocket occupancy occur.
+def determine_state_limits(distr, show_plots=None):    
     new_dist=distr.copy()
     distribution=[item for item in new_dist if item != 10000.0]
     ##obtaining the gaussian fit
     gaussians, xline = get_gaussian_fit(distribution)            
     ##discretising each state by gaussian intersects       
-    intersection_of_states=get_intersects(gaussians,distr,xline)   
+    intersection_of_states=get_intersects(gaussians,distr,xline,show_plots)   
     if distr.count(10000.0)>=1:
         intersection_of_states.append(20000.0)  
     
@@ -313,7 +321,7 @@ def calculate_entropy(state_limits,distribution_list):
 
 ##this function requires a list of angles for SSI
 ##SSI(A,B) = H(A) + H(B) - H(A,B)
-def calculate_ssi(set_distr_a, set_distr_b=None):
+def calculate_ssi(set_distr_a, set_distr_b=None, show_plots=None):
 
     ##calculating the entropy for set_distr_a
     ## if set_distr_a only contains one distributions
@@ -324,8 +332,7 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
         distr_a=[periodic_correction(i) for i in set_distr_a]
     distr_a_states=[]
     for i in distr_a:
-        distr_a_states.append(extract_state_limits(i))
-        print(distr_a_states)
+        distr_a_states.append(determine_state_limits(i, show_plots))
         
     H_a=calculate_entropy(distr_a_states,distr_a) 
             
@@ -343,7 +350,7 @@ def calculate_ssi(set_distr_a, set_distr_b=None):
             distr_b=[periodic_correction(i) for i in set_distr_b]
         distr_b_states=[]
         for i in distr_b:
-            distr_b_states.append(extract_state_limits(i))
+            distr_b_states.append(determine_state_limits(i, show_plots))
         H_b=calculate_entropy(distr_b_states,distr_b)
 
     ab_joint_states= distr_a_states + distr_b_states
@@ -366,7 +373,7 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
         distr_a=[periodic_correction(i) for i in set_distr_a]
     distr_a_states=[]
     for i in distr_a:
-        distr_a_states.append(extract_state_limits(i))
+        distr_a_states.append(determine_state_limits(i))
     H_a=calculate_entropy(distr_a_states,distr_a)
         
     ##----------------
@@ -377,7 +384,7 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
         distr_b=[periodic_correction(i) for i in set_distr_b]
     distr_b_states=[]
     for i in distr_b:
-        distr_b_states.append(extract_state_limits(i))
+        distr_b_states.append(determine_state_limits(i))
     H_b=calculate_entropy(distr_b_states,distr_b) 
     
     ##----------------
@@ -394,7 +401,7 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
             distr_c=[periodic_correction(i) for i in set_distr_c]
         distr_c_states=[]
         for i in distr_c:
-            distr_c_states.append(extract_state_limits(i))
+            distr_c_states.append(determine_state_limits(i))
         H_c=calculate_entropy(distr_c_states,distr_c)
 
     ##----------------
@@ -423,4 +430,4 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
     coSSI = (H_a + H_b + H_c) - (H_ab + H_ac + H_bc) + H_abc 
         
     return SSI, coSSI
-   
+
