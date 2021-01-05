@@ -93,14 +93,16 @@ def local_maxima_3D(data, order=3):
 
 
 def get_water_features(grid_input, structure_input, xtc_input, atom=None, threshold_density=None):
-
     
     if atom is None:
         atomgroup = "OW"
     ## by default make this average_probability_density
     
     
-    
+    grid_input = "OW_density.dx"
+    structure_input = "na4dkldens.gro"
+    xtc_input = "trajforh2ona4dkl.xtc"
+    threshold_density = 0.1
     
     u = mda.Universe(structure_input, xtc_input)
     # ## The density will be obtained from the universe which depends on the .xtc and .gro
@@ -121,8 +123,8 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
     average_probability_density = sol_number/np.product(grid_data.shape)
     if threshold_density is None:
         threshold_density = average_probability_density
-
-
+    
+    
     
     ##mask all grid centers with density less than threshold density
     grid_data[grid_data <= threshold_density] = 0.0
@@ -131,8 +133,6 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
     coords, values = local_maxima_3D(grid_data)
     
     maxdens_coord_str = [str(item)[1:-1] for item in coords]
-    
-    # water_pocket_Calphas = [u.select_atoms('name CA and point '+coord+' 5') for coord in maxdens_coord_str]
     
     philist=[]
     psilist=[]
@@ -186,7 +186,7 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
             freq_count.sort(key = lambda x: x[0])
             
             ##(x,y,z) positions for the water atom (residue) at frame i
-            water_indices=u.select_atoms('resid ' + str(freq_count[-1][1])).indices
+                water_indices=u.select_atoms('resid ' + str(freq_count[-1][1])).indices
             water_atom_positions=u.trajectory[i].positions[water_indices]
             #print(water_atom_positions)
             psi, phi = get_dipole(water_atom_positions)
@@ -213,5 +213,13 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
     
     # np.savetxt(filepsi,np.array(psilist))
     # np.savetxt(filephi,np.array(philist))
+    
+    pymol_output = [maxdens_coord_str[wat_no] + str(psilist.count(10000.0)/len(psilist))]
+        
+    return psilist, philist, pymol_output
 
-    return psilist, philist
+
+get_water_features(grid_input = "OW_density.dx", 
+                    structure_input = "na4dkldens.gro", 
+                    xtc_input = "trajforh2ona4dkl.xtc",
+                    threshold_density = 0.1)
