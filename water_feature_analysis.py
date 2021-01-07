@@ -10,6 +10,17 @@ a combination of the water occupancy (binary variable) and the water polarisatio
 For a water molecule to exist within a water pocket, all three water atoms must occupy the pocket. 
 If there is ever an instance where two water molecules occupy the same pocket at the same time,
 then the water polarisation of the molecule ID that occupies the pocket most often is used.
+
+Outputs include:
+       A water density file (.dx format)
+       Two lists representing the timeseries spherical coordinates for water orientation
+       An identifier for each water (spatial and a unique ID)
+       The frequency of water occupation for a specific site
+       
+Future output to be added:
+       A protein structure file (e.g. pymol) with oxygens at the probability centers of each water site
+       and oxygens will refer to unique identifier for each water so the waters can be visualised.
+       
 """
 
 import MDAnalysis as mda
@@ -18,7 +29,6 @@ import numpy as np
 from scipy import ndimage as ndi
 from gridData import Grid
 import MDAnalysis.analysis.hbonds
-from collections import OrderedDict
 import matplotlib.pyplot as plt
 import math
 import re
@@ -92,17 +102,31 @@ def local_maxima_3D(data, order=3):
     return coords, values
 
 
-def get_water_features(grid_input, structure_input, xtc_input, atom=None, threshold_density=None):
+def get_water_features(grid_input, structure_input, xtc_input, atomgroup=None, threshold_density=None):
     
-    if atom is None:
+    """
+    Example use:
+        get_water_features(grid_input = "OW_density.dx", 
+                           structure_input = "protein.gro", 
+                           xtc_input = "protein.xtc",
+                           threshold_density = 0.1)
+        
+    Output:
+        
+        Polarisation angles are output in spherical coordinates in degrees 
+        
+        List (phi values), 
+        List (psi values), 
+        List (water pocket center coordinate and frequency of pocket occupation)  
+    
+    """
+    
+    wat_no=0
+    
+    
+    if atomgroup is None:
         atomgroup = "OW"
     ## by default make this average_probability_density
-    
-    
-    grid_input = "OW_density.dx"
-    structure_input = "na4dkldens.gro"
-    xtc_input = "trajforh2ona4dkl.xtc"
-    threshold_density = 0.1
     
     u = mda.Universe(structure_input, xtc_input)
     # ## The density will be obtained from the universe which depends on the .xtc and .gro
@@ -146,7 +170,7 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
         u.trajectory[i]
         ##this is where the water pocket is defined as sphere of radius 5 
         ##centred on centre of geometry of following CA atoms
-        waters_resid=u.select_atoms('resname SOL and point ' + maxdens_coord_str[0]+' 5').resids
+        waters_resid=u.select_atoms('resname SOL and point ' + maxdens_coord_str[wat_no]+' 5').resids
                          
         ##making a list of water residue IDs for every frame where all three atoms of the water appear in the pocket
         multi_waters_id=[]
@@ -186,7 +210,7 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
             freq_count.sort(key = lambda x: x[0])
             
             ##(x,y,z) positions for the water atom (residue) at frame i
-                water_indices=u.select_atoms('resid ' + str(freq_count[-1][1])).indices
+            water_indices=u.select_atoms('resid ' + str(freq_count[-1][1])).indices
             water_atom_positions=u.trajectory[i].positions[water_indices]
             #print(water_atom_positions)
             psi, phi = get_dipole(water_atom_positions)
@@ -200,12 +224,12 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
             psilist.append(10000.0)
             philist.append(10000.0)
             
-    plt.figure()
-    plt.plot(np.histogram([elem for elem in philist if elem !=10000.0],bins=60)[1][0:-1],np.histogram([elem for elem in philist if elem !=10000.0],bins=60)[0],label='D2.50 + Na')
-    plt.xlabel('$\phi$')
-    plt.figure()
-    plt.plot(np.histogram([elem for elem in psilist if elem !=10000.0],bins=60)[1][0:-1],np.histogram([elem for elem in psilist if elem !=10000.0],bins=60)[0],label='D2.50 + Na')
-    plt.xlabel('$\psi$')
+    # plt.figure()
+    # plt.plot(np.histogram([elem for elem in philist if elem !=10000.0],bins=60)[1][0:-1],np.histogram([elem for elem in philist if elem !=10000.0],bins=60)[0],label='D2.50 + Na')
+    # plt.xlabel('$\phi$')
+    # plt.figure()
+    # plt.plot(np.histogram([elem for elem in psilist if elem !=10000.0],bins=60)[1][0:-1],np.histogram([elem for elem in psilist if elem !=10000.0],bins=60)[0],label='D2.50 + Na')
+    # plt.xlabel('$\psi$')
             
     
     # filepsi='waterdistributions/'+str(simulation_names)+str(water_names[water_pocket_number])+'_water_distspsi.txt'
@@ -214,12 +238,9 @@ def get_water_features(grid_input, structure_input, xtc_input, atom=None, thresh
     # np.savetxt(filepsi,np.array(psilist))
     # np.savetxt(filephi,np.array(philist))
     
-    pymol_output = [maxdens_coord_str[wat_no] + str(psilist.count(10000.0)/len(psilist))]
+    ##this provides a unique ID, coordinate, and frequency of occupation for each water site
+    id_output = ['## ' + atomgroup + str(wat_no) + ':' + maxdens_coord_str[wat_no] + str(psilist.count(10000.0)/len(psilist))]
         
-    return psilist, philist, pymol_output
+    return psilist, philist, id_output
 
 
-get_water_features(grid_input = "OW_density.dx", 
-                    structure_input = "na4dkldens.gro", 
-                    xtc_input = "trajforh2ona4dkl.xtc",
-                    threshold_density = 0.1)
