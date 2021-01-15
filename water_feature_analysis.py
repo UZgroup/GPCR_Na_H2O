@@ -180,7 +180,7 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
     average_probability_density = sol_number/np.product(grid_data.shape)
     # print(average_probability_density)
     ##mask all grid centers with density less than threshold density
-    grid_data[grid_data <= average_probability_density] = 0.0
+    grid_data[grid_data <= 10*average_probability_density] = 0.0
     
     
     xyz, val = local_maxima_3D(grid_data)
@@ -205,8 +205,8 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
         ###extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound
         #print('extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound')
         counting=[]
-        # for i in tqdm(range(len(u.trajectory))):       
-        for i in tqdm(range(100)):       
+        for i in tqdm(range(len(u.trajectory))):       
+        # for i in tqdm(range(10)):       
             u.trajectory[i]
             ##list all water resids within sphere of radius 2 centered on water prob density maxima
             atomgroup_IDS=list(u.select_atoms('name ' + atomgroup + ' and point ' + maxdens_coord_str[wat_no] +' 3.5').residues.resids)
@@ -221,8 +221,8 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
         flat_list = [item for sublist in counting for item in sublist]
         
         ###extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound
-        for i in tqdm(range(100)):       
-        # for i in tqdm(range(len(u.trajectory))):       
+        # for i in tqdm(range(10)):       
+        for i in tqdm(range(len(u.trajectory))):       
             u.trajectory[i]
             waters_resid=counting[i]
             ##extracting the water coordinates for inside the pocket
@@ -303,5 +303,8 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
 
     
 
-
+water_frequencies=get_water_features(structure_input = "na4dkldens.gro", 
+                                    xtc_input = "trajforh2ona4dkl.xtc",
+                                    top_waters = 26,
+                                    write=None)
 
