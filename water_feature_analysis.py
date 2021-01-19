@@ -176,24 +176,34 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
     sol_number = len(u.select_atoms('name ' + atomgroup))
     grid_data = np.array(g.grid)*sol_number/np.sum(np.array(g.grid))
     
-    ##can be used to mask all probabilities below the average 
-    average_probability_density = sol_number/np.product(grid_data.shape)
+    ##mask all probabilities below the average prob in the whole box
+    # average_probability_density_box = sol_number/np.product(grid_data.shape)
+    ##mask all probabilities below the average water probability
+    average_probability_density = sol_number/sum(1 for i in grid_data.flat if i)
+    print(average_probability_density)
+
+    
     # print(average_probability_density)
     ##mask all grid centers with density less than threshold density
-    grid_data[grid_data <= 10*average_probability_density] = 0.0
+    grid_data[grid_data <= average_probability_density] = 0.0
     
     
     xyz, val = local_maxima_3D(grid_data)
-    val_sort = np.argsort(val.copy())
+    ##negate the array to get descending order from most prob to least prob
+    val_sort = np.argsort(-1*val.copy())
+    values = [val[i] for i in val_sort]    
     coords = [xyz[i] for i in val_sort]    
-    
+    print(values[0:100])    
     maxdens_coord_str = [str(item)[1:-1] for item in coords]
     
     water_frequencies=[]
         
     if top_waters is None:
         top_waters = len(coords)  
-    
+    elif top_waters > len(coords):
+        top_waters = len(coords)  
+
+        
     print('Featurizing ',top_waters,' Waters')
     for wat_no in range(top_waters):
         print('\n')
@@ -206,7 +216,7 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
         #print('extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound')
         counting=[]
         for i in tqdm(range(len(u.trajectory))):       
-        # for i in tqdm(range(10)):       
+        # for i in tqdm(range(100)):       
             u.trajectory[i]
             ##list all water resids within sphere of radius 2 centered on water prob density maxima
             atomgroup_IDS=list(u.select_atoms('name ' + atomgroup + ' and point ' + maxdens_coord_str[wat_no] +' 3.5').residues.resids)
@@ -221,7 +231,7 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
         flat_list = [item for sublist in counting for item in sublist]
         
         ###extracting (psi,phi) coordinates for each water dipole specific to the frame they are bound
-        # for i in tqdm(range(10)):       
+        # for i in tqdm(range(100)):       
         for i in tqdm(range(len(u.trajectory))):       
             u.trajectory[i]
             waters_resid=counting[i]
@@ -255,9 +265,10 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
         water_out = [psilist, philist]        
         water_ID = atomgroup + chr(ord('`')+wat_no+1)
         water_pocket_occupation_frequency = 1 - psilist.count(10000.0)/len(psilist)    
-        print(water_ID, water_pocket_occupation_frequency)
+        atom_location = coords[wat_no] + g.origin
+        # print(water_ID, water_pocket_occupation_frequency)
 
-        water_frequencies.append([water_ID,water_pocket_occupation_frequency])
+        water_frequencies.append([water_ID,atom_location,water_pocket_occupation_frequency])
 
         ##WRITE OUT WATER FEATURES INTO SUBDIRECTORY
         if write is True:
@@ -296,15 +307,23 @@ def get_water_features(structure_input, xtc_input, atomgroup=None,
         u_pdb.add_TopologyAttr('tempfactors')
         # Write values as beta-factors ("tempfactors") to a PDB file
         for res in range(len(water_frequencies)):
-            u_pdb.residues[-1*res].atoms.tempfactors = water_frequencies[-1*res][1]
+            u_pdb.residues[-1*res].atoms.tempfactors = water_frequencies[-1*res][-1]
         u_pdb.atoms.write(pdb_outname)
+
+    if write is True:
+        filename= 'water_features/WaterPocketFrequencies.txt'
+        with open(filename, 'w') as output:
+            for row in water_frequencies:
+                output.write(str(row) + '\n')
             
     return water_frequencies
 
-    
 
-water_frequencies=get_water_features(structure_input = "na4dkldens.gro", 
-                                    xtc_input = "trajforh2ona4dkl.xtc",
-                                    top_waters = 26,
-                                    write=None)
+   
+
+# water_frequencies=get_water_features(structure_input = "na4dkldens.gro", 
+#                                     xtc_input = "trajforh2ona4dkl.xtc",
+#                                     grid_input = "OW_density.dx",
+#                                     # top_waters = 10,
+#                                     write=True)
 
