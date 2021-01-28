@@ -16,9 +16,9 @@ from time import gmtime, strftime
 import ast
 from pathlib import Path
 import matplotlib.pyplot as plt
-import seaborn as sns
 from scipy.optimize import curve_fit
 from scipy.signal import argrelextrema
+import os
 
 """
 FUNCTIONS
@@ -89,7 +89,7 @@ def smooth(x,window_len,window=None):
     if not window_type in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
         raise ValueError
     s=np.r_[x[window_len-1:0:-1],x,x[-2:-window_len-1:-1]]
-    if window_type  is  'flat': #moving average
+    if window_type  ==  'flat': #moving average
         w=np.ones(window_len,'d')
     else:
         w=eval('np.'+window_type+'(window_len)')
@@ -126,6 +126,18 @@ def sexmodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4,mu5,sigma
 def septmodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4,mu5,sigma5,A5,mu6,sigma6,A6,mu7,sigma7,A7):
     """ Seven gaussians """
     return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)+gauss(x,mu4,sigma4,A4)+gauss(x,mu5,sigma5,A5)+gauss(x,mu6,sigma6,A6)+gauss(x,mu7,sigma7,A7)    
+def octomodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4,mu5,sigma5,A5,mu6,sigma6,A6,mu7,sigma7,A7,mu8,sigma8,A8):
+    """ Seven gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)+gauss(x,mu4,sigma4,A4)+gauss(x,mu5,sigma5,A5)+gauss(x,mu6,sigma6,A6)+gauss(x,mu7,sigma7,A7)+gauss(x,mu8,sigma8,A8)    
+def nonamodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4,mu5,sigma5,A5,mu6,sigma6,A6,mu7,sigma7,A7,mu8,sigma8,A8,mu9,sigma9,A9):
+    """ Seven gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)+gauss(x,mu4,sigma4,A4)+gauss(x,mu5,sigma5,A5)+gauss(x,mu6,sigma6,A6)+gauss(x,mu7,sigma7,A7)+gauss(x,mu8,sigma8,A8)+gauss(x,mu9,sigma9,A9)      
+def decamodal(x,mu1,sigma1,A1,mu2,sigma2,A2,mu3,sigma3,A3,mu4,sigma4,A4,mu5,sigma5,A5,mu6,sigma6,A6,mu7,sigma7,A7,mu8,sigma8,A8,mu9,sigma9,A9,mu10,sigma10,A10):
+    """ Seven gaussians """
+    return gauss(x,mu1,sigma1,A1)+gauss(x,mu2,sigma2,A2)+gauss(x,mu3,sigma3,A3)+gauss(x,mu4,sigma4,A4)+gauss(x,mu5,sigma5,A5)+gauss(x,mu6,sigma6,A6)+gauss(x,mu7,sigma7,A7)+gauss(x,mu8,sigma8,A8)+gauss(x,mu9,sigma9,A9)+gauss(x,mu10,sigma10,A10)        
+
+
+
 
 
 #PRINT K CLOSEST VALUES TO SPECIFIED VALUE
@@ -156,21 +168,24 @@ def printKclosest(arr,n,x,k):
         a.append(str("{} ".format(arr[q])))
     return a
 
+## Gaussian integral for evaluating state probabilities
+def integral(x, mu, sigma, A):
+    integral = (A/2) * (1 + math.erf((x - mu) / (sigma * np.sqrt(2))))
+    return integral
 
 ## obatining the gaussians that fit the distribution
 ## bin number is chosen based on 3 degree resolution (120 bins for 360 degrees)
 ## smoothing is chosen based on 95% significance level (i.e. 0.05*binnumber) 
-def get_gaussian_fit(distribution, binnumber=120, window_len=6):    
-    histo=np.histogram(distribution, bins=binnumber, density=True)
-    distributionx=smooth(histo[1][0:-1],window_len)
+def get_gaussian_fit(distribution, gauss_bin, gauss_smooth):    
+    histo=np.histogram(distribution, bins=gauss_bin, density=True)
+    distributionx=smooth(histo[1][0:-1],gauss_smooth)
     ##this shifts the histo values down by the minimum value to help with finding a minimum
-    distributiony=smooth(histo[0]-min(histo[0]),window_len)
+    distributiony=smooth(histo[0]-min(histo[0]),gauss_smooth)
     ##getting an array of all the maxima indices
     maxima = [distributiony[item] for item in argrelextrema(distributiony, np.greater)][0]
     ##the maxima may be an artifact of undersampling
     ##this grabs only the maxima that correspond to a density greater than the cutoff
     ##cutoff= 0.75% at a 99.25% significance level
-    ##which ignores only the states limits in which states are sampled less that 1% of the time
     corrected_extrema=[item for item in maxima if item > max(distributiony)*0.0075]
     ##finding the guess parameters for the plots
     ##empty lists for the guess params to be added to
@@ -202,74 +217,77 @@ def get_gaussian_fit(distribution, binnumber=120, window_len=6):
     ##x is the space of angles
     xline=np.linspace(min(distribution),max(distribution),10000)                
     ##choosing the fitting mode
-    peak_number=[gauss,bimodal,trimodal,quadmodal,quinmodal,sexmodal,septmodal]
+    peak_number=[gauss,bimodal,trimodal,quadmodal,quinmodal,sexmodal,septmodal,octomodal,nonamodal,decamodal]
     mode=peak_number[len(sig_vals)-1]    
     expected=[]
     for i in range(len(mean_pop)):
         expected.append(mean_pop[i])
         expected.append(sigma_pop[i])
         expected.append(corrected_extrema[i])    
+    # try:
     params,cov=curve_fit(mode,distributionx,distributiony,expected,maxfev=1000000)   
+    # except:
+        
     gaussians=[]
     gaussnumber=np.linspace(0,(len(params))-3,int(len(params)/3))    
+    # for j in gaussnumber:
+    #     gaussians.append(gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]))
     for j in gaussnumber:
-        gaussians.append(gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]))
+        intmax = integral(max(distribution),params[0+int(j)], params[1+int(j)], params[2+int(j)])
+        intmin = integral(min(distribution),params[0+int(j)], params[1+int(j)], params[2+int(j)])
+        if np.abs(intmax-intmin)>0.02:
+            gaussians.append(gauss(xline, params[0+int(j)], params[1+int(j)], params[2+int(j)]))
     return gaussians, xline
 
 
 # OBTAINING THE GAUSSIAN INTERSECTS
-def get_intersects(gaussians,distribution,xline, show_plots=None):
-    ##discretising each state by gaussian intersects    
+def get_intersects(gaussians,distribution,xline, write_plots=None,write_name=None):
     ##adding the minimum angle value as the first boundary
     all_intersects=[min(distribution)]
-    
     mean_gauss_xval=[]
     for i in range(len(gaussians)):
         mean_gauss_xval.append(xline[list(gaussians[i]).index(max(gaussians[i]))])
         
-    gauss_mean_ordered=sorted(mean_gauss_xval)
     reorder_indices=[mean_gauss_xval.index(i) for i in sorted(mean_gauss_xval)]    
-    ##sort gaussians in order of their mean xval for neighbouring intersects
-    ##Only accept gaussians if their maxima is above 0.03 (normalised histogram)
-    reorder_gaussians=[gaussians[i] for i in reorder_indices if max(gaussians[i])>0.03]
+    ##sort gaussians in order of their mean xval and ignore gaussians with maxima below 0.0001
+    reorder_gaussians=[gaussians[i] for i in reorder_indices if max(gaussians[i])>0.0001]
         
     for i in range(len(reorder_gaussians)-1):    
-        ##First calculate f - g and the corresponding signs using np.sign. 
-        ##Applying np.diff reveals all the positions where the sign changes (e.g. the lines cross). 
-        ##Using np.argwhere gives us the exact indices of the state intersects
-        
+        ##Find indices between neighbouring gaussians
         idx = np.argwhere(np.diff(np.sign(reorder_gaussians[i] - reorder_gaussians[i+1]))).flatten()      
-        
         if len(idx)==1:
-            all_intersects.append(xline[idx][0])
-            
+            all_intersects.append(xline[idx][0])   
         elif len(idx)!=0:
-            ##intersects can occur at multiple places
-            ##this selects the intersect with the maximum probability
-            ##which stops intersects occuring when
-            ##the gaussians trail to zero further right on the plot
+            ##selects the intersect with the maximum probability
+            ##to stop intersects occuring when the gaussians trail to zero further right on the plot
             intersect_ymax=max([reorder_gaussians[i][intersect] for intersect in idx])
-            intersect_ymax_index=[item for item in idx if reorder_gaussians[i][item]==intersect_ymax]
-            
+            intersect_ymax_index=[item for item in idx if reorder_gaussians[i][item]==intersect_ymax]            
             all_intersects.append(xline[intersect_ymax_index])
-
+        ##for gaussian neighbours that don't intersect, set state limit as center between maxima
+        elif len(idx)==0:            
+            gauss_max1=list(reorder_gaussians[i]).index(max(reorder_gaussians[i]))
+            gauss_max2=list(reorder_gaussians[i+1]).index(max(reorder_gaussians[i+1]))
+            intersect =  0.5* np.abs(xline[gauss_max2] +  xline[gauss_max1])
+            all_intersects.append(intersect)
             
     all_intersects.append(max(distribution))  
-    
-    if show_plots is not None:
+        
+    if write_plots is not None:
+        if not os.path.exists('ssi_plots/'):
+            os.makedirs('ssi_plots/')
         plt.figure()      
-        # histo=np.histogram(distribution, bins=120, density=True)
-        # distributionx=smooth(histo[1][0:-1],12)
-        # distributiony=smooth(histo[0]-min(histo[0]),12)
-        # plt.plot(distributionx,distributiony,ls='--',lw=3)
-        sns.distplot(distribution,bins=120) 
+        plt.ion()
+        plt.hist(distribution,bins=360, density=True, alpha=0.5)
         for j in range(len(reorder_gaussians)):
-            plt.plot(xline, reorder_gaussians[j], linewidth=2)        
+            plt.plot(xline, reorder_gaussians[j], lw=2)        
         for i in range(len(all_intersects)):
             plt.axvline(all_intersects[i],color='k',lw=1,ls='--')   
         plt.xlabel('Radians')
         plt.ylabel('Count')
-            
+        plt.title(write_name)        
+        plt.ioff()
+        plt.savefig('ssi_plots/'+write_name+".png")
+    
     return all_intersects
     
 
@@ -277,13 +295,13 @@ def get_intersects(gaussians,distribution,xline, show_plots=None):
 ##The function handles both residue angle distributions and water orientation/occupancy
 ##distributions. For waters, the assignment of an additional non-angular state is performed if
 ## changes in pocket occupancy occur.
-def determine_state_limits(distr, show_plots=None):    
+def determine_state_limits(distr, gauss_bins=120, gauss_smooth=10, write_plots=None, write_name=None):    
     new_dist=distr.copy()
     distribution=[item for item in new_dist if item != 10000.0]
     ##obtaining the gaussian fit
-    gaussians, xline = get_gaussian_fit(distribution)            
+    gaussians, xline = get_gaussian_fit(distribution,gauss_bins,gauss_smooth)            
     ##discretising each state by gaussian intersects       
-    intersection_of_states=get_intersects(gaussians,distr,xline,show_plots)   
+    intersection_of_states = get_intersects(gaussians, distribution, xline,  write_plots, write_name)   
     if distr.count(10000.0)>=1:
         intersection_of_states.append(20000.0)  
     
@@ -321,18 +339,28 @@ def calculate_entropy(state_limits,distribution_list):
 
 ##this function requires a list of angles for SSI
 ##SSI(A,B) = H(A) + H(B) - H(A,B)
-def calculate_ssi(set_distr_a, set_distr_b=None, show_plots=None):
-
+def calculate_ssi(set_distr_a, set_distr_b=None, a_states=None, b_states=None,
+                  gauss_bins=120, gauss_smooth=10, write_plots=None, write_name=None):
+        
+    
     ##calculating the entropy for set_distr_a
     ## if set_distr_a only contains one distributions
-    if any(isinstance(i, list) for i in set_distr_a) is 0:
+    if any(isinstance(i, list) for i in set_distr_a)==0:
         distr_a=[periodic_correction(set_distr_a)]
     ## else set_distr_a is a nested list of multiple distributions (bivariate)
     else:
         distr_a=[periodic_correction(i) for i in set_distr_a]
-    distr_a_states=[]
-    for i in distr_a:
-        distr_a_states.append(determine_state_limits(i, show_plots))
+    
+    if a_states is None:    
+        distr_a_states=[]
+        for i in range(len(distr_a)):
+            if write_name is not None:
+                plot_name = write_name + '_dist' + str(i)
+            else:
+                plot_name = None
+            distr_a_states.append(determine_state_limits(distr_a[i], gauss_bins, gauss_smooth, write_plots, plot_name))
+    else:
+        distr_a_states = a_states
         
     H_a=calculate_entropy(distr_a_states,distr_a) 
             
@@ -344,13 +372,22 @@ def calculate_ssi(set_distr_a, set_distr_b=None, show_plots=None):
         distr_b_states= [[0,1,2]]  
         
     else:
-        if any(isinstance(i, list) for i in set_distr_b) is 0:
+        if any(isinstance(i, list) for i in set_distr_b)==0:
             distr_b=[periodic_correction(set_distr_b)]
         else:
             distr_b=[periodic_correction(i) for i in set_distr_b]
-        distr_b_states=[]
-        for i in distr_b:
-            distr_b_states.append(determine_state_limits(i, show_plots))
+        if b_states is None:    
+            distr_b_states=[]
+            for i in range(len(distr_b)):
+                if write_name is not None:
+                    plot_name = write_name + '_dist' + str(i)
+                else:
+                    plot_name = None
+                distr_b_states.append(determine_state_limits(distr_b[i], gauss_bins, gauss_smooth, write_plots, plot_name))
+        else:
+            distr_b_states = b_states
+            
+                
         H_b=calculate_entropy(distr_b_states,distr_b)
 
     ab_joint_states= distr_a_states + distr_b_states
@@ -364,27 +401,43 @@ def calculate_ssi(set_distr_a, set_distr_b=None, show_plots=None):
 
 
 #CoSSI = H_a + H_b + H_c - H_ab - H_bc - H_ac + H_abc
-def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
-    
+def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None, a_states=None, b_states=None,
+                    c_states=None, gauss_bins=120, gauss_smooth=10, write_plots=None,write_name=None):
+        
+        
     ##calculating the entropy for set_distr_a
-    if any(isinstance(i, list) for i in set_distr_a) is 0:
+    if any(isinstance(i, list) for i in set_distr_a)==0:
         distr_a=[periodic_correction(set_distr_a)]
     else:
         distr_a=[periodic_correction(i) for i in set_distr_a]
-    distr_a_states=[]
-    for i in distr_a:
-        distr_a_states.append(determine_state_limits(i))
+    if a_states is None:    
+        distr_a_states=[]
+        for i in range(len(distr_a)):
+            if write_name is not None:
+                plot_name = write_name + '_dist' + str(i)
+            else:
+                plot_name = None
+            distr_a_states.append(determine_state_limits(distr_a[i], gauss_bins, gauss_smooth, write_plots, plot_name))
+    else:
+        distr_a_states = a_states    
     H_a=calculate_entropy(distr_a_states,distr_a)
         
     ##----------------
     ##calculating the entropy for set_distr_b
-    if any(isinstance(i, list) for i in set_distr_b) is 0:
+    if any(isinstance(i, list) for i in set_distr_b)==0:
         distr_b=[periodic_correction(set_distr_b)]
     else:
         distr_b=[periodic_correction(i) for i in set_distr_b]
-    distr_b_states=[]
-    for i in distr_b:
-        distr_b_states.append(determine_state_limits(i))
+    if b_states is None:    
+        distr_b_states=[]
+        for i in range(len(distr_b)):
+            if write_name is not None:
+                plot_name = write_name + '_dist' + str(i)
+            else:
+                plot_name = None
+            distr_b_states.append(determine_state_limits(distr_b[i], gauss_bins, gauss_smooth, write_plots, plot_name))
+    else:
+        distr_b_states = b_states
     H_b=calculate_entropy(distr_b_states,distr_b) 
     
     ##----------------
@@ -395,13 +448,20 @@ def calculate_cossi(set_distr_a, set_distr_b, set_distr_c=None):
         distr_c=[[0.5]*int(len(distr_a[0])/2) + [1.5]*int(len(distr_a[0])/2)]
         distr_c_states= [[0,1,2]]  
     else:
-        if any(isinstance(i, list) for i in set_distr_c) is 0:
+        if any(isinstance(i, list) for i in set_distr_c)==0:
             distr_c=[periodic_correction(set_distr_c)]
         else:
             distr_c=[periodic_correction(i) for i in set_distr_c]
-        distr_c_states=[]
-        for i in distr_c:
-            distr_c_states.append(determine_state_limits(i))
+        if c_states is None:    
+            distr_c_states=[]
+            for i in range(len(distr_c)):
+                if write_name is not None:
+                    plot_name = write_name + '_dist' + str(i)
+                else:
+                    plot_name = None
+                distr_c_states.append(determine_state_limits(distr_c[i], gauss_bins, gauss_smooth, write_plots, plot_name))
+        else:
+            distr_c_states = c_states
         H_c=calculate_entropy(distr_c_states,distr_c)
 
     ##----------------
